@@ -5,7 +5,7 @@ import ChatBubble, { ChatMessage } from "@/component/Groups/Chat/ChatBubble";
 import ChatInput from "@/component/Groups/Chat/ChatInput";
 import MessageContextMenu from "@/component/Groups/Chat/MessageContextMenu";
 import { getAuthToken, WS_BASE_URL, apiFetch } from "@/lib/api";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 
 import GroupCapitalModal from "@/component/Groups/Chat/GroupCapitalModal";
 import InviteMemberModal from "@/component/Groups/Chat/InviteMemberModal";
@@ -15,12 +15,12 @@ function ChatComponent() {
   const [myFinovaId, setMyFinovaId] = useState<string>("");
   const [showCapitalModal, setShowCapitalModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [groupDetails, setGroupDetails] = useState<{name: string, capital: number, isLoading: boolean}>({
+  const [groupDetails, setGroupDetails] = useState<{ name: string, capital: number, isLoading: boolean }>({
     name: "Loading...",
     capital: 0,
     isLoading: true
   });
-  const [typingUsers, setTypingUsers] = useState<Map<string, {username: string, timeout: any}>>(new Map());
+  const [typingUsers, setTypingUsers] = useState<Map<string, { username: string, timeout: any }>>(new Map());
   const typingTimeouts = useRef<Record<string, any>>({});
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -38,6 +38,7 @@ function ChatComponent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
+  const router = useRouter();
   const searchParams = useSearchParams();
   const groupId = searchParams.get('groupId');
   const finovaId = searchParams.get('finovaId') || 'GROUP';
@@ -52,12 +53,12 @@ function ChatComponent() {
           apiFetch(`/groups/${finovaId}/`),
           apiFetch(`/groups/${finovaId}/messages/`)
         ]);
-        
+
         let personalFinovaId = "";
         if (meRes.ok) {
-           const meData = await meRes.json();
-           personalFinovaId = meData.finova_id;
-           setMyFinovaId(personalFinovaId);
+          const meData = await meRes.json();
+          personalFinovaId = meData.finova_id;
+          setMyFinovaId(personalFinovaId);
         }
 
         if (groupRes.ok) {
@@ -68,7 +69,7 @@ function ChatComponent() {
             isLoading: false
           });
         }
-        
+
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           
@@ -93,7 +94,7 @@ function ChatComponent() {
           const history = (msgData.results || msgData).map((m: any) => {
             const dt = new Date(m.created_at);
             const isMyText = personalFinovaId ? m.sender_finova_id === personalFinovaId : m.sender_finova_id === 'You';
-            
+
             // Detect cardAction from message content
             let cardAction: "discuss" | "poll" | undefined;
             let pollDirection: "buy" | "sell" | undefined;
@@ -157,15 +158,15 @@ function ChatComponent() {
     ws.onopen = () => {
       if (isMounted) console.log(`Connected to group ${groupId}`);
     };
-    
+
     ws.onmessage = (event) => {
       if (!isMounted) return;
       const data = JSON.parse(event.data);
-      
+
       if (data.type === 'group_message_broadcast') {
         const now = new Date();
         const isMyText = myFinovaId ? data.sender_finova_id === myFinovaId : data.sender_finova_id === 'You';
-        
+
         // Don't add if it's our own optimistic message (we'll see it from our own send)
         // Actually, it's better to let the server broadcast be the source of truth
         setMessages((prev) => {
@@ -175,7 +176,7 @@ function ChatComponent() {
             senderName: isMyText ? "You" : data.sender_username || data.sender_finova_id,
             text: data.content,
             time: `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`,
-            isOwn: isMyText, 
+            isOwn: isMyText,
             isRead: false,
             avatarInitials: (data.sender_username || data.sender_finova_id || "U").substring(0, 2).toUpperCase(),
             messageType: data.message_type,
@@ -203,10 +204,10 @@ function ChatComponent() {
         if (data.is_typing) {
           setTypingUsers(prev => {
             const next = new Map(prev);
-            
+
             // Clear existing timeout
             if (typingTimeouts.current[data.sender_finova_id]) {
-               clearTimeout(typingTimeouts.current[data.sender_finova_id]);
+              clearTimeout(typingTimeouts.current[data.sender_finova_id]);
             }
 
             // Set auto-clear timeout
@@ -226,8 +227,8 @@ function ChatComponent() {
           setTypingUsers(prev => {
             const next = new Map(prev);
             if (typingTimeouts.current[data.sender_finova_id]) {
-                clearTimeout(typingTimeouts.current[data.sender_finova_id]);
-                delete typingTimeouts.current[data.sender_finova_id];
+              clearTimeout(typingTimeouts.current[data.sender_finova_id]);
+              delete typingTimeouts.current[data.sender_finova_id];
             }
             next.delete(data.sender_finova_id);
             return next;
@@ -241,7 +242,7 @@ function ChatComponent() {
         console.error("WebSocket Error (Full):", JSON.stringify(error, null, 2), error);
       }
     };
-    
+
     ws.onclose = (event) => {
       if (isMounted) {
         console.warn(`WebSocket Closed: Code=${event.code}, Reason=${event.reason}, Clean=${event.wasClean}`);
@@ -335,7 +336,7 @@ function ChatComponent() {
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ content, message_type: messageType, stock_symbol: stockSymbol }));
-      
+
       // Optimistic UI update
       const now = new Date();
       const msg: ChatMessage = {
@@ -408,7 +409,7 @@ function ChatComponent() {
         const userTransactions = walletData.transactions?.filter(
           (t: any) => t.transaction_type === 'deposit'
         ) || [];
-        
+
         if (userTransactions.length === 0) {
           // User hasn't contributed — prompt them
           setShowCapitalModal(true);
@@ -444,11 +445,17 @@ function ChatComponent() {
         pooledCapital={groupDetails.capital > 0 ? `₹${groupDetails.capital.toLocaleString()}` : "₹0"}
         isActive={true}
         typingStatus={
-          typingUsers.size > 0 
+          typingUsers.size > 0
             ? `${Array.from(typingUsers.values()).map(u => u.username).join(", ")} ${typingUsers.size === 1 ? 'is' : 'are'} typing...`
             : undefined
         }
         onCapitalClick={() => setShowCapitalModal(true)}
+        onHeaderClick={() => {
+          const params = new URLSearchParams();
+          if (groupId) params.set('groupId', groupId);
+          params.set('finovaId', finovaId);
+          router.push(`/groups/chat/club-details?${params.toString()}`);
+        }}
         onInviteClick={() => setShowInviteModal(true)}
       />
 
@@ -497,7 +504,7 @@ function ChatComponent() {
         position={contextMenu.position}
         messageText={contextMenu.messageText}
         onDelete={handleDelete}
-        onCopy={() => {}}
+        onCopy={() => { }}
         onClose={closeContextMenu}
       />
 
@@ -510,7 +517,7 @@ function ChatComponent() {
           // Simply refetch group details to update pool capital visually
           apiFetch(`/groups/${finovaId}/`)
             .then(res => res.json())
-            .then(data => setGroupDetails(prev => ({...prev, capital: data.wallet ? parseFloat(data.wallet.current_balance) : 0})));
+            .then(data => setGroupDetails(prev => ({ ...prev, capital: data.wallet ? parseFloat(data.wallet.current_balance) : 0 })));
         }}
       />
 
