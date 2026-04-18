@@ -71,6 +71,25 @@ function ChatComponent() {
         
         if (msgRes.ok) {
           const msgData = await msgRes.json();
+          
+          // Fetch active polls to resolve pollId for historical messages
+          let pollsMap: Record<string, {pollId: string, discussionId: string, direction: string}> = {};
+          try {
+            const pollsRes = await apiFetch(`/groups/${finovaId}/polls/`);
+            if (pollsRes.ok) {
+              const pollsData = await pollsRes.json();
+              const pollsList = Array.isArray(pollsData) ? pollsData : (pollsData.results || []);
+              for (const poll of pollsList) {
+                const sym = poll.discussion_stock_symbol || '';
+                pollsMap[sym.toUpperCase()] = {
+                  pollId: poll.id,
+                  discussionId: poll.discussion,
+                  direction: poll.discussion_type || 'buy',
+                };
+              }
+            }
+          } catch(e) { console.error("Failed to fetch polls for mapping:", e); }
+          
           const history = (msgData.results || msgData).map((m: any) => {
             const dt = new Date(m.created_at);
             const isMyText = personalFinovaId ? m.sender_finova_id === personalFinovaId : m.sender_finova_id === 'You';
@@ -78,11 +97,23 @@ function ChatComponent() {
             // Detect cardAction from message content
             let cardAction: "discuss" | "poll" | undefined;
             let pollDirection: "buy" | "sell" | undefined;
+            let resolvedPollId: string | undefined;
+            let resolvedDiscussionId: string | undefined;
             const content = m.content || "";
             if (content.match(/discuss$/i)) cardAction = "discuss";
             else if (content.match(/poll(\s+(buy|sell))?$/i)) {
               cardAction = "poll";
               pollDirection = content.match(/sell/i) ? "sell" : "buy";
+            }
+            
+            // Resolve pollId from the polls map using stock_symbol
+            if (cardAction === "poll" && m.stock_symbol) {
+              const match = pollsMap[m.stock_symbol.toUpperCase()];
+              if (match) {
+                resolvedPollId = match.pollId;
+                resolvedDiscussionId = match.discussionId;
+                if (!pollDirection) pollDirection = match.direction as "buy" | "sell";
+              }
             }
 
             return {
@@ -97,6 +128,8 @@ function ChatComponent() {
               stockSymbol: m.stock_symbol,
               cardAction,
               pollDirection,
+              pollId: resolvedPollId,
+              discussionId: resolvedDiscussionId,
               createdAt: m.created_at,
             }
           });
