@@ -76,8 +76,10 @@ function ChatComponent() {
             let pollDirection: "buy" | "sell" | undefined;
             const content = m.content || "";
             if (content.match(/discuss$/i)) cardAction = "discuss";
-            else if (content.match(/poll\s+sell$/i)) { cardAction = "poll"; pollDirection = "sell"; }
-            else if (content.match(/poll\s+buy$/i)) { cardAction = "poll"; pollDirection = "buy"; }
+            else if (content.match(/poll(\s+(buy|sell))?$/i)) {
+              cardAction = "poll";
+              pollDirection = content.match(/sell/i) ? "sell" : "buy";
+            }
 
             return {
               id: m.id,
@@ -177,8 +179,8 @@ function ChatComponent() {
     let discussionId: string | undefined;
     let pollId: string | undefined;
 
-    // Command Parsing: /stock SYMBOL [discuss | poll buy/sell]
-    const stockMatch = text.match(/^\/stock\s+["']?([A-Za-z0-9._-]+)["']?\s*(discuss|poll\s+(?:buy|sell))?$/i);
+    // Command Parsing: /stock SYMBOL [discuss | poll buy/sell/default]
+    const stockMatch = text.match(/^\/stock\s+["']?([A-Za-z0-9._-]+)["']?\s*(discuss|poll(?:\s+(?:buy|sell))?)?$/i);
     if (stockMatch) {
       messageType = "stock";
       stockSymbol = stockMatch[1].toUpperCase();
