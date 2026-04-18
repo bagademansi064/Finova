@@ -5,14 +5,16 @@ import { apiFetch } from "@/lib/api";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
+  onTyping: (isTyping: boolean) => void;
 }
 
-export default function ChatInput({ onSend }: ChatInputProps) {
+export default function ChatInput({ onSend, onTyping }: ChatInputProps) {
   const [text, setText] = useState("");
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const typingTimer = useRef<any>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Prefetch market cache eagerly
@@ -68,6 +70,13 @@ export default function ChatInput({ onSend }: ChatInputProps) {
     } else {
       setShowSuggestions(false);
     }
+
+    // Typing Indicator Logic
+    onTyping(true);
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => {
+      onTyping(false);
+    }, 2000);
   };
 
   const selectSuggestion = (symbol: string) => {

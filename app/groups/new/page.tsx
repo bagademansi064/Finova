@@ -15,6 +15,18 @@ export default function NewGroupPage() {
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [invitedIds, setInvitedIds] = useState<string[]>([]);
+  const [inviteId, setInviteId] = useState("");
+
+  const handleAddInvite = () => {
+    if (!inviteId.trim()) return;
+    if (invitedIds.includes(inviteId.trim())) {
+      setInviteId("");
+      return;
+    }
+    setInvitedIds(prev => [...prev, inviteId.trim()]);
+    setInviteId("");
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -29,7 +41,10 @@ export default function NewGroupPage() {
     try {
       const response = await apiFetch(`/groups/`, {
         method: "POST",
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          invited_finova_ids: invitedIds
+        }),
       });
 
       if (response.ok) {
@@ -107,6 +122,54 @@ export default function NewGroupPage() {
               placeholder="Rules, voting expectations, capital minimums..."
               className="w-full rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-800 outline-none transition-all focus:border-[#0D624B] focus:ring-1 focus:ring-[#0D624B] shadow-sm sm:shadow-none min-h-[100px]"
             />
+          </div>
+
+          <div className="mb-4">
+            <label className="mb-1.5 block text-sm font-medium text-gray-600">
+              Invite Founding Members
+            </label>
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={inviteId}
+                onChange={(e) => setInviteId(e.target.value.toUpperCase())}
+                placeholder="Enter Finova ID (e.g. FHW397)"
+                className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#0D624B]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddInvite();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleAddInvite}
+                className="rounded-xl bg-[#0D624B]/10 px-4 py-2 text-sm font-semibold text-[#0D624B] transition-colors hover:bg-[#0D624B]/20"
+              >
+                Add
+              </button>
+            </div>
+            
+            {invitedIds.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {invitedIds.map((id) => (
+                  <div key={id} className="flex items-center gap-1.5 rounded-full bg-white border border-gray-200 px-3 py-1.5 shadow-sm">
+                    <span className="text-xs font-bold text-gray-700">{id}</span>
+                    <button
+                      type="button"
+                      onClick={() => setInvitedIds(prev => prev.filter(i => i !== id))}
+                      className="text-gray-400 hover:text-red-500"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-gray-400 italic">
+              Invitations will be sent once the club is created. Users must accept to join.
+            </p>
           </div>
 
           <button

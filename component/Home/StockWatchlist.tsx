@@ -1,106 +1,142 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import { Plus, ChevronRight, Loader2 } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Plus, ChevronRight, Loader2, BarChart3, Search, Eye } from "lucide-react";
 import StockItem from "./StockItem";
+import StockSearchModal from "./StockSearchModal";
 import { apiFetch } from '@/lib/api';
 
-const tabs = ["Invested", "Watchlist 1", "Watchlist 2"];
+const tabs = ["Invested", "Watchlist"];
 
 export default function StockWatchlist() {
   const [activeTab, setActiveTab] = useState(0);
-  const [stocksData, setStocksData] = useState<any[]>([]);
+  const [investedData, setInvestedData] = useState<any[]>([]);
+  const [watchlistData, setWatchlistData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  const fetchDashboard = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await apiFetch('/users/dashboard/');
+      if (response.ok) {
+        const data = await response.json();
+        setInvestedData(data.invested || []);
+        setWatchlistData(data.watchlist || []);
+      }
+    } catch (err) {
+      console.error("Failed to load dashboard data", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchMarketData = async () => {
-      try {
-        setLoading(true);
-        // Using sample NIFTY 50 blue chips default string, replace later if user has a custom watchlist
-        const response = await apiFetch('/market/live/?symbols=HDFCBANK.NS,INFY.NS,TCS.NS,ONGC.NS');
-        const data = await response.json();
-        
-        // Transform Zerodha-Style backend dictionary to Array
-        const formattedData = Object.values(data).map((stock: any) => ({
-          name: stock.symbol.replace('.NS', ''),
-          exchange: "NSE",
-          badge: stock.dividend_yield ? "DIVIDEND" : null,
-          price: stock.current_price,
-          change: (stock.current_price * (parseFloat(stock.percent_change) / 100)).toFixed(2),
-          changePercent: `${parseFloat(stock.percent_change) > 0 ? '+' : ''}${stock.percent_change}%`,
-          isPositive: parseFloat(stock.percent_change) >= 0,
-        }));
+    fetchDashboard();
+  }, [fetchDashboard]);
 
-        setStocksData(formattedData);
-      } catch (err) {
-        console.error("Failed to load market data", err);
-      } finally {
-        setLoading(false);
+  const handleAddStock = async (symbol: string) => {
+    try {
+      const response = await apiFetch('/users/watchlist/', {
+        method: 'POST',
+        body: JSON.stringify({ symbol })
+      });
+      if (response.ok) {
+        setIsSearchOpen(false);
+        fetchDashboard();
       }
-    };
+    } catch (err) {
+      console.error("Failed to add to watchlist", err);
+    }
+  };
 
-    fetchMarketData();
-  }, []);
+  const stocksToDisplay = activeTab === 0 ? investedData : watchlistData;
 
   return (
     <div
-      className="mx-5 mt-3 rounded-2xl bg-white p-4 shadow-sm animate-fade-in-up"
+      className="mx-5 mt-3 rounded-3xl bg-white p-5 shadow-2xl shadow-gray-200/50 border border-gray-100 animate-fade-in-up"
       style={{ animationDelay: "200ms" }}
     >
-      {/* Tabs */}
-      <div className="flex items-center gap-2.5 overflow-x-auto hide-scrollbar pb-1">
-        {tabs.map((tab, i) => (
-          <button
-            key={tab}
-            id={`watchlist-tab-${i}`}
-            onClick={() => setActiveTab(i)}
-            className={`flex-shrink-0 rounded-full border px-4 py-2 text-[13px] font-semibold transition-all tap-highlight ${
-              activeTab === i
-                ? "border-[#00695C] bg-white text-[#00695C] shadow-sm"
-                : "border-[#d6ddd9] bg-[#f7f9f8] text-[#6b7c75] hover:bg-[#eef2f0]"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+      {/* Header & Tabs */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-1.5 p-1 bg-[#f0f2f1] rounded-2xl">
+          {tabs.map((tab, i) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(i)}
+              className={`px-4 py-2 text-[13px] font-bold rounded-xl transition-all ${
+                activeTab === i
+                  ? "bg-white text-[#0D624B] shadow-sm"
+                  : "text-[#6b7c75] hover:text-[#0E1B19]"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        
         <button
-          id="add-watchlist-btn"
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-dashed border-[#b0c4b8] text-[#6b7c75] transition-colors hover:bg-[#f0f5f2] tap-highlight"
-          aria-label="Add watchlist"
+          onClick={() => setIsSearchOpen(true)}
+          className="h-10 w-10 flex items-center justify-center rounded-2xl bg-[#0D624B] text-white shadow-lg shadow-[#0D624B]/20 active:scale-95 transition-all"
         >
-          <Plus size={16} />
+          <Plus size={20} />
         </button>
       </div>
 
       {/* Stock List */}
-      <div className="mt-2 divide-y divide-[#f0f2f1] stagger-children">
+      <div className="min-h-[200px]">
         {loading ? (
-          <div className="flex justify-center p-4">
-             <Loader2 className="animate-spin text-[#0D624B]" />
+          <div className="flex flex-col items-center justify-center py-12 gap-3">
+             <Loader2 className="animate-spin text-[#0D624B]" size={32} />
+             <p className="text-[13px] font-medium text-[#8a9690]">Syncing market prices...</p>
+          </div>
+        ) : stocksToDisplay.length > 0 ? (
+          <div className="divide-y divide-[#f0f2f1] stagger-children">
+            {stocksToDisplay.map((stock, idx) => (
+              <StockItem
+                key={`${stock.symbol || stock.stock_symbol}-${idx}`}
+                name={(stock.symbol || stock.stock_symbol).replace('.NS', '')}
+                exchange="NSE"
+                price={stock.current_price}
+                changePercent={`${parseFloat(stock.profit_loss_percent || stock.percent_change || 0).toFixed(2)}%`}
+                isPositive={parseFloat(stock.profit_loss_percent || stock.percent_change || 0) >= 0}
+                clubName={stock.group_name}
+                isPL={activeTab === 0}
+                change={""}
+              />
+            ))}
           </div>
         ) : (
-          stocksData.map((stock) => (
-            <StockItem
-              key={stock.name}
-              name={stock.name}
-              exchange={stock.exchange}
-              badge={stock.badge}
-              price={stock.price}
-              change={stock.change}
-              changePercent={stock.changePercent}
-              isPositive={stock.isPositive}
-            />
-          ))
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="h-16 w-16 bg-[#f7f9f8] rounded-full flex items-center justify-center mb-4">
+              {activeTab === 0 ? <BarChart3 className="text-[#8a9690]" size={28} /> : <Eye className="text-[#8a9690]" size={28} />}
+            </div>
+            <h3 className="text-[15px] font-bold text-[#0E1B19]">
+              {activeTab === 0 ? "No investments yet" : "Watchlist is empty"}
+            </h3>
+            <p className="text-[12px] text-[#8a9690] mt-1 max-w-[200px]">
+              {activeTab === 0 
+                ? "Join a club and start voting to build your portfolio" 
+                : "Search and add stocks to track them here"}
+            </p>
+          </div>
         )}
       </div>
 
-      {/* View More */}
-      <button
-        id="view-more-stocks"
-        className="mt-1 flex w-full items-center justify-center gap-1 py-1.5 text-[13px] font-semibold text-[#0E1B19] transition-colors hover:text-[#00695C] tap-highlight"
-      >
-        View More
-        <ChevronRight size={14} />
-      </button>
+      {/* Footer */}
+      {!loading && stocksToDisplay.length > 0 && (
+        <button
+          className="mt-4 flex w-full items-center justify-center gap-2 py-3 rounded-2xl border border-gray-100 text-[13px] font-bold text-[#0E1B19] hover:bg-gray-50 transition-colors"
+        >
+          Detailed Portfolio Analytics
+          <ChevronRight size={16} />
+        </button>
+      )}
+
+      <StockSearchModal 
+        isOpen={isSearchOpen} 
+        onClose={() => setIsSearchOpen(false)} 
+        onAdd={handleAddStock}
+      />
     </div>
   );
 }

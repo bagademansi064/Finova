@@ -8,16 +8,20 @@ import { getAuthToken, WS_BASE_URL, apiFetch } from "@/lib/api";
 import { useSearchParams } from "next/navigation";
 
 import GroupCapitalModal from "@/component/Groups/Chat/GroupCapitalModal";
+import InviteMemberModal from "@/component/Groups/Chat/InviteMemberModal";
 
 function ChatComponent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [myFinovaId, setMyFinovaId] = useState<string>("");
   const [showCapitalModal, setShowCapitalModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [groupDetails, setGroupDetails] = useState<{name: string, capital: number, isLoading: boolean}>({
     name: "Loading...",
     capital: 0,
     isLoading: true
   });
+  const [typingUsers, setTypingUsers] = useState<Map<string, {username: string, timeout: any}>>(new Map());
+  const typingTimeouts = useRef<Record<string, any>>({});
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     position: { x: number; y: number };
@@ -124,21 +128,74 @@ function ChatComponent() {
     ws.onmessage = (event) => {
       if (!isMounted) return;
       const data = JSON.parse(event.data);
-      if (data.type === 'chat_message_broadcast') {
+      
+      if (data.type === 'group_message_broadcast') {
         const now = new Date();
         const isMyText = myFinovaId ? data.sender_finova_id === myFinovaId : data.sender_finova_id === 'You';
-        const msg: ChatMessage = {
-          id: data.id || Date.now().toString(),
-          senderName: isMyText ? "You" : data.sender_finova_id,
-          text: data.content,
-          time: `${now.getHours()}:${now.getMinutes()} ${now.getHours() >= 12 ? 'PM' : 'AM'}`,
-          isOwn: isMyText, 
-          isRead: false,
-          avatarInitials: (data.sender_finova_id || "U").substring(0, 2).toUpperCase(),
-          messageType: data.message_type,
-          stockSymbol: data.stock_symbol
-        };
-        setMessages((prev) => [...prev, msg]);
+        
+        // Don't add if it's our own optimistic message (we'll see it from our own send)
+        // Actually, it's better to let the server broadcast be the source of truth
+        setMessages((prev) => {
+          if (prev.find(m => m.id === data.id)) return prev;
+          const msg: ChatMessage = {
+            id: data.id || Date.now().toString(),
+            senderName: isMyText ? "You" : data.sender_username || data.sender_finova_id,
+            text: data.content,
+            time: `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`,
+            isOwn: isMyText, 
+            isRead: false,
+            avatarInitials: (data.sender_username || data.sender_finova_id || "U").substring(0, 2).toUpperCase(),
+            messageType: data.message_type,
+            stockSymbol: data.stock_symbol,
+            createdAt: data.created_at
+          };
+          return [...prev, msg];
+        });
+
+        // Clear typing status for this user when they send a message
+        setTypingUsers(prev => {
+          const next = new Map(prev);
+          next.delete(data.sender_finova_id);
+          return next;
+        });
+      }
+
+      if (data.type === 'group_user_typing') {
+        if (data.sender_finova_id === myFinovaId) return;
+
+        if (data.is_typing) {
+          setTypingUsers(prev => {
+            const next = new Map(prev);
+            
+            // Clear existing timeout
+            if (typingTimeouts.current[data.sender_finova_id]) {
+               clearTimeout(typingTimeouts.current[data.sender_finova_id]);
+            }
+
+            // Set auto-clear timeout
+            const timeout = setTimeout(() => {
+              setTypingUsers(curr => {
+                const nextCurr = new Map(curr);
+                nextCurr.delete(data.sender_finova_id);
+                return nextCurr;
+              });
+            }, 3000);
+
+            typingTimeouts.current[data.sender_finova_id] = timeout;
+            next.set(data.sender_finova_id, { username: data.sender_username, timeout });
+            return next;
+          });
+        } else {
+          setTypingUsers(prev => {
+            const next = new Map(prev);
+            if (typingTimeouts.current[data.sender_finova_id]) {
+                clearTimeout(typingTimeouts.current[data.sender_finova_id]);
+                delete typingTimeouts.current[data.sender_finova_id];
+            }
+            next.delete(data.sender_finova_id);
+            return next;
+          });
+        }
       }
     };
 
@@ -266,6 +323,12 @@ function ChatComponent() {
     }
   }, [finovaId]);
 
+  const handleTyping = useCallback((isTyping: boolean) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'typing', is_typing: isTyping }));
+    }
+  }, []);
+
   const handleLongPress = useCallback(
     (messageId: string, position: { x: number; y: number }, text: string) => {
       setContextMenu({
@@ -343,7 +406,13 @@ function ChatComponent() {
         avatarTextColor="#2e7d32"
         pooledCapital={groupDetails.capital > 0 ? `₹${groupDetails.capital.toLocaleString()}` : "₹0"}
         isActive={true}
+        typingStatus={
+          typingUsers.size > 0 
+            ? `${Array.from(typingUsers.values()).map(u => u.username).join(", ")} ${typingUsers.size === 1 ? 'is' : 'are'} typing...`
+            : undefined
+        }
         onCapitalClick={() => setShowCapitalModal(true)}
+        onInviteClick={() => setShowInviteModal(true)}
       />
 
       {/* Date Separator */}
@@ -383,7 +452,7 @@ function ChatComponent() {
       </div>
 
       {/* Input */}
-      <ChatInput onSend={handleSend} />
+      <ChatInput onSend={handleSend} onTyping={handleTyping} />
 
       {/* Context Menu */}
       <MessageContextMenu
@@ -406,6 +475,13 @@ function ChatComponent() {
             .then(res => res.json())
             .then(data => setGroupDetails(prev => ({...prev, capital: data.wallet ? parseFloat(data.wallet.current_balance) : 0})));
         }}
+      />
+
+      <InviteMemberModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        finovaId={finovaId}
+        onSuccess={(msg) => alert(msg)}
       />
     </div>
   );

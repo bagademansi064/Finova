@@ -3,18 +3,12 @@ import { Capacitor } from '@capacitor/core';
 const isMobile = typeof window !== 'undefined' && Capacitor.isNativePlatform();
 
 function getApiBaseUrl(): string {
-  // Always favor the environment variables if they exist
-  if (isMobile) {
-    return process.env.NEXT_PUBLIC_MOBILE_API_URL || 'http://192.168.0.1:8001/api';
+  // 1. Unified API URL (preferred for ngrok/production)
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
   }
   
-  // For desktop/web, check if we have a specific desktop IP defined
-  const desktopUrl = process.env.NEXT_PUBLIC_DESKTOP_API_URL;
-  if (desktopUrl) {
-    return desktopUrl;
-  }
-
-  // Fallback to dynamic resolution if no specific override is found
+  // 2. Dynamic resolution for web/desktop
   if (typeof window !== 'undefined') {
     return `http://${window.location.hostname}:8001/api`;
   }
@@ -22,15 +16,12 @@ function getApiBaseUrl(): string {
 }
 
 function getWsBaseUrl(): string {
-  if (isMobile) {
-    return process.env.NEXT_PUBLIC_MOBILE_WS_URL || 'ws://192.168.0.1:8001/ws';
+  // 1. Unified WS URL (preferred for ngrok/production)
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
   }
   
-  const desktopWsUrl = process.env.NEXT_PUBLIC_DESKTOP_WS_URL;
-  if (desktopWsUrl) {
-    return desktopWsUrl;
-  }
-
+  // 2. Dynamic resolution for web/desktop
   if (typeof window !== 'undefined') {
     return `ws://${window.location.hostname}:8001/ws`;
   }
@@ -72,6 +63,7 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers || {});
   
   headers.set('Content-Type', 'application/json');
+  headers.set('ngrok-skip-browser-warning', 'true');
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
