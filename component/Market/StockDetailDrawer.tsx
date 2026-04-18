@@ -30,6 +30,7 @@ interface StockData {
   volume: number;
   avg_price: number;
   last_qty: number;
+  ltq_time: string;
   market_cap: number;
   sector: string;
   industry: string;
