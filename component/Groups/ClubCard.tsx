@@ -4,6 +4,8 @@ import { Users } from "lucide-react";
 import Link from "next/link";
 
 interface ClubCardProps {
+  id: string;
+  finova_id: string;
   name: string;
   initials: string;
   avatarBg: string;
@@ -16,6 +18,8 @@ interface ClubCardProps {
 }
 
 export default function ClubCard({
+  id,
+  finova_id,
   name,
   initials,
   avatarBg,
@@ -27,7 +31,7 @@ export default function ClubCard({
   isPositive = true,
 }: ClubCardProps) {
   return (
-    <Link href="/groups/chat" className="flex flex-col gap-2 rounded-2xl bg-white p-4 shadow-sm transition-shadow hover:shadow-md cursor-pointer animate-fade-in-up no-underline">
+    <Link href={`/groups/chat?groupId=${id}&finovaId=${finova_id}`} className="flex flex-col gap-2 rounded-2xl bg-white p-4 shadow-sm transition-shadow hover:shadow-md cursor-pointer animate-fade-in-up no-underline">
       {/* Top Row: Avatar + Name + Return */}
       <div className="flex items-start gap-3">
         {/* Avatar */}

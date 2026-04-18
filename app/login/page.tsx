@@ -1,12 +1,20 @@
 "use client"
+import React, { useState } from 'react';
 import CustomInput from '@/component/LoginComps/CustomInput'
 import OAuthButton from '@/component/LoginComps/OAuthButton';
-import { Mail, Lock } from 'lucide-react';
+import { Mail, Lock, User } from 'lucide-react';
 import BrandLogo from '@/component/BrandLogo';
 import Link from 'next/link';
-
+import { useRouter } from 'next/navigation';
+import { apiFetch, setAuthToken } from '@/lib/api';
 
 export default function Login() {
+  const router = useRouter();
+  const [finovaId, setFinovaId] = useState('');
+  const [password, setPassword] = useState('');
+  const [errorMSG, setErrorMSG] = useState('');
+  const [loading, setLoading] = useState(false);
+
   const authProviders = [
     {
       name: 'Google',
@@ -49,10 +57,39 @@ export default function Login() {
     }
   ];
 
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMSG('');
+
+    try {
+      const response = await apiFetch('/users/login/', {
+        method: 'POST',
+        body: JSON.stringify({
+          finova_id: finovaId,
+          password: password,
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+         setAuthToken(data.access, data.refresh);
+         router.push('/home');
+      } else {
+         setErrorMSG(data.detail || 'Invalid credentials');
+      }
+    } catch (err) {
+      setErrorMSG('Network error unable to connect to server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col items-center  px-6 py-8 font-sans sm:justify-center bg-[linear-gradient(to_bottom_right,#FFFFFF_0%,#E4FCF0_42%,#D2FAE6_93%)] sm:p-4">
 
-      {/* Mobile Logo placement (Hidden on Desktop to match your earlier design, or remove 'sm:hidden' to keep it) */}
+      {/* Mobile Logo placement */}
       <div className="w-full mb-12 mt-4">
         <BrandLogo className='absolute h-fit w-fit left-10 top-10' />
       </div>
@@ -71,29 +108,42 @@ export default function Login() {
           </p>
         </div>
 
+        {errorMSG && (
+           <div className="mb-4 bg-red-50 text-red-600 text-sm p-3 rounded-lg border border-red-100 text-center">
+             {errorMSG}
+           </div>
+        )}
+
         {/* Form Section */}
-        <form onSubmit={(e) => e.preventDefault()} className="space-y-5">
+        <form onSubmit={handleLogin} className="space-y-5">
           <CustomInput
-            label="Business Email"
-            type="email"
-            placeholder='Your Business Email'
-            iconLeft={Mail}
+            label="Finova ID / Username"
+            type="text"
+            placeholder='FHT928 or johndoe'
+            value={finovaId}
+            onChange={(e) => setFinovaId(e.target.value)}
+            iconLeft={User}
+            required
           />
 
           <CustomInput
             label="Password"
             type="password"
             placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             iconLeft={Lock}
             showForgotPassword={true}
+            required
           />
 
           <button
             type="submit"
-            className="mt-8 w-full rounded-2xl bg-[#0D624B] py-4 text-center text-[15px] font-semibold text-white shadow-md transition-colors hover:bg-[#094d3a] focus:outline-none focus:ring-4 focus:ring-[#0D624B]/30 sm:mt-6 sm:py-3.5"
+            disabled={loading}
+            className="mt-8 w-full rounded-2xl bg-[#0D624B] py-4 text-center text-[15px] font-semibold text-white shadow-md transition-colors hover:bg-[#094d3a] focus:outline-none focus:ring-4 focus:ring-[#0D624B]/30 sm:mt-6 sm:py-3.5 disabled:opacity-70"
           >
-            <span className="sm:hidden">Log In</span>
-            <span className="hidden sm:inline">Sign in to Finova</span>
+            <span className="sm:hidden">{loading ? 'Logging in...' : 'Log In'}</span>
+            <span className="hidden sm:inline">{loading ? 'Logging in...' : 'Sign in to Finova'}</span>
           </button>
         </form>
 

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { apiFetch, setAuthToken } from '@/lib/api';
 
 export default function Register() {
   const router = useRouter();
@@ -27,6 +28,7 @@ export default function Register() {
     fullName: '',
     email: '',
     password: '',
+    passwordConfirm: '',
     phone: '',
     dob: '',
     gender: '',
@@ -36,7 +38,8 @@ export default function Register() {
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    let { name, value } = e.target;
+    if (name === "panCard") value = value.toUpperCase();
     setFormData(prev => ({
       ...prev,
       [name]: value
@@ -52,16 +55,64 @@ export default function Register() {
     }
   };
 
-  const handleNextStep = (e: React.FormEvent) => {
+  const handleNextStep = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validations
+    if (currentStep === 0) {
+      if (formData.password.length < 8) {
+        alert("Password must be at least 8 characters long.");
+        return;
+      }
+      if (formData.password !== formData.passwordConfirm) {
+        alert("Passwords do not match.");
+        return;
+      }
+    } else if (currentStep === 1) {
+      const dobDate = new Date(formData.dob);
+      const ageDate = new Date(Date.now() - dobDate.getTime());
+      const age = Math.abs(ageDate.getUTCFullYear() - 1970);
+      if (age < 18) {
+        alert("You must be 18 or older to register.");
+        return;
+      }
+    } else if (currentStep === 2) {
+      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+      if (!panRegex.test(formData.panCard)) {
+        alert("PAN Card must be exactly 5 Uppercase letters, 4 numbers, and 1 Uppercase letter (e.g., ABCDE1234F).");
+        return;
+      }
+    }
+
     if (currentStep < totalSteps - 1) {
       setCurrentStep(prev => prev + 1);
     } else {
       // Final Registration Submit
-      console.log('Final Form Data:', formData);
-      alert('Registration Completed! (Check Console)');
-      // In real scenario, make API call here and then redirect
-      router.push('/login');
+      try {
+        const response = await apiFetch('/users/register/', {
+          method: 'POST',
+          body: JSON.stringify({
+            username: formData.email.split('@')[0], 
+            email: formData.email,
+            password: formData.password,
+            password_confirm: formData.passwordConfirm,
+            pan_card: formData.panCard,
+            date_of_birth: formData.dob,
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+           console.log('Registration Success! finova_id:', data.finova_id);
+           router.push('/login');
+        } else {
+           // Provide standard fallback if detail missing
+           alert(data.detail || JSON.stringify(data) || 'Registration failed');
+        }
+      } catch (err) {
+        alert('Could not connect to server.');
+      }
     }
   };
 
@@ -167,6 +218,16 @@ export default function Register() {
                 name="password"
                 type="password"
                 value={formData.password}
+                onChange={handleChange}
+                placeholder="••••••••"
+                iconLeft={Lock}
+                required
+              />
+              <CustomInput
+                label="Confirm Password"
+                name="passwordConfirm"
+                type="password"
+                value={formData.passwordConfirm}
                 onChange={handleChange}
                 placeholder="••••••••"
                 iconLeft={Lock}

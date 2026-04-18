@@ -1,57 +1,23 @@
 "use client";
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import ChatHeader from "@/component/Groups/Chat/ChatHeader";
 import ChatBubble, { ChatMessage } from "@/component/Groups/Chat/ChatBubble";
 import ChatInput from "@/component/Groups/Chat/ChatInput";
 import MessageContextMenu from "@/component/Groups/Chat/MessageContextMenu";
+import { getAuthToken, WS_BASE_URL, apiFetch } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
 
-/* ── Mock Data ──────────────────────────────────────────────── */
+import GroupCapitalModal from "@/component/Groups/Chat/GroupCapitalModal";
 
-const initialMessages: ChatMessage[] = [
-  {
-    id: "1",
-    senderName: "Marcus Lee",
-    text: "The solar farm project in Nevada just hit its first milestone. We're looking at a 12% yield forecast increase.",
-    time: "10:24 AM",
-    isOwn: false,
-    avatarInitials: "ML",
-    avatarBg: "#e0f2f1",
-    avatarTextColor: "#00695C",
-  },
-  {
-    id: "2",
-    senderName: "You",
-    text: "That's huge news! Should we re-allocate some of the liquid capital from the wind fund to double down?",
-    time: "10:25 AM",
-    isOwn: true,
-    isRead: true,
-  },
-  {
-    id: "3",
-    senderName: "Sarah Chen",
-    text: "To kick anybody out we vote",
-    time: "10:27 AM",
-    isOwn: false,
-    avatarInitials: "SC",
-    avatarBg: "#fff3e0",
-    avatarTextColor: "#e65100",
-  },
-  {
-    id: "4",
-    senderName: "Jordan Smith",
-    text: "Agreed, decentralized governance is key for the Eco Alpha model. Let's keep the proposal transparent.",
-    time: "10:30 AM",
-    isOwn: false,
-    avatarInitials: "JS",
-    avatarBg: "#e8f5e9",
-    avatarTextColor: "#2e7d32",
-  },
-];
-
-/* ── Page ────────────────────────────────────────────────────── */
-
-export default function GroupChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+function ChatComponent() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [myFinovaId, setMyFinovaId] = useState<string>("");
+  const [showCapitalModal, setShowCapitalModal] = useState(false);
+  const [groupDetails, setGroupDetails] = useState<{name: string, capital: number, isLoading: boolean}>({
+    name: "Loading...",
+    capital: 0,
+    isLoading: true
+  });
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     position: { x: number; y: number };
@@ -65,32 +31,238 @@ export default function GroupChatPage() {
   });
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const searchParams = useSearchParams();
+  const groupId = searchParams.get('groupId');
+  const finovaId = searchParams.get('finovaId') || 'GROUP';
+
+  // Fetch Group details and History
+  useEffect(() => {
+    if (!finovaId || finovaId === 'GROUP') return;
+    async function fetchGroupData() {
+      try {
+        const [meRes, groupRes, msgRes] = await Promise.all([
+          apiFetch('/users/me/'),
+          apiFetch(`/groups/${finovaId}/`),
+          apiFetch(`/groups/${finovaId}/messages/`)
+        ]);
+        
+        let personalFinovaId = "";
+        if (meRes.ok) {
+           const meData = await meRes.json();
+           personalFinovaId = meData.finova_id;
+           setMyFinovaId(personalFinovaId);
+        }
+
+        if (groupRes.ok) {
+          const data = await groupRes.json();
+          setGroupDetails({
+            name: data.name,
+            capital: data.wallet ? parseFloat(data.wallet.current_balance) : 0,
+            isLoading: false
+          });
+        }
+        
+        if (msgRes.ok) {
+          const msgData = await msgRes.json();
+          const history = (msgData.results || msgData).map((m: any) => {
+            const dt = new Date(m.created_at);
+            const isMyText = personalFinovaId ? m.sender_finova_id === personalFinovaId : m.sender_finova_id === 'You';
+            
+            // Detect cardAction from message content
+            let cardAction: "discuss" | "poll" | undefined;
+            let pollDirection: "buy" | "sell" | undefined;
+            const content = m.content || "";
+            if (content.match(/discuss$/i)) cardAction = "discuss";
+            else if (content.match(/poll\s+sell$/i)) { cardAction = "poll"; pollDirection = "sell"; }
+            else if (content.match(/poll\s+buy$/i)) { cardAction = "poll"; pollDirection = "buy"; }
+
+            return {
+              id: m.id,
+              senderName: isMyText ? "You" : m.sender_finova_id,
+              text: m.content,
+              time: `${dt.getHours()}:${dt.getMinutes().toString().padStart(2, '0')} ${dt.getHours() >= 12 ? 'PM' : 'AM'}`,
+              isOwn: isMyText,
+              isRead: true,
+              avatarInitials: (m.sender_finova_id || "U").substring(0, 2).toUpperCase(),
+              messageType: m.message_type,
+              stockSymbol: m.stock_symbol,
+              cardAction,
+              pollDirection,
+              createdAt: m.created_at,
+            }
+          });
+          // Set messages directly — DRF natively returns chronological [Oldest, Newer, Newest]
+          setMessages(history);
+        }
+      } catch (err) {
+        console.error("Failed to fetch group data:", err);
+      }
+    }
+    fetchGroupData();
+  }, [finovaId]);
+
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token || !groupId) return;
+
+    // Connect to Django Groups WebSocket dynamically using the true UUID
+    const wsUrl = `${WS_BASE_URL}/groups/${groupId}/?token=${token}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    let isMounted = true;
+
+    ws.onopen = () => {
+      if (isMounted) console.log(`Connected to group ${groupId}`);
+    };
+    
+    ws.onmessage = (event) => {
+      if (!isMounted) return;
+      const data = JSON.parse(event.data);
+      if (data.type === 'chat_message_broadcast') {
+        const now = new Date();
+        const isMyText = myFinovaId ? data.sender_finova_id === myFinovaId : data.sender_finova_id === 'You';
+        const msg: ChatMessage = {
+          id: data.id || Date.now().toString(),
+          senderName: isMyText ? "You" : data.sender_finova_id,
+          text: data.content,
+          time: `${now.getHours()}:${now.getMinutes()} ${now.getHours() >= 12 ? 'PM' : 'AM'}`,
+          isOwn: isMyText, 
+          isRead: false,
+          avatarInitials: (data.sender_finova_id || "U").substring(0, 2).toUpperCase(),
+          messageType: data.message_type,
+          stockSymbol: data.stock_symbol
+        };
+        setMessages((prev) => [...prev, msg]);
+      }
+    };
+
+    ws.onerror = (error) => {
+      if (isMounted) {
+        console.error("WebSocket Error (Full):", JSON.stringify(error, null, 2), error);
+      }
+    };
+    
+    ws.onclose = (event) => {
+      if (isMounted) {
+        console.warn(`WebSocket Closed: Code=${event.code}, Reason=${event.reason}, Clean=${event.wasClean}`);
+      }
+    };
+
+    return () => {
+      isMounted = false;
+      console.log("Cleaning up WebSocket connection");
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    };
+  }, [groupId]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
 
-  const handleSend = useCallback((text: string) => {
-    const now = new Date();
-    const hours = now.getHours();
-    const minutes = now.getMinutes().toString().padStart(2, "0");
-    const ampm = hours >= 12 ? "PM" : "AM";
-    const h12 = hours % 12 || 12;
+  const handleSend = useCallback(async (text: string) => {
+    let messageType = "text";
+    let stockSymbol: string | null = null;
+    let cardAction: "discuss" | "poll" | null = null;
+    let pollDirection: "buy" | "sell" | null = null;
+    let content = text;
+    let discussionId: string | undefined;
+    let pollId: string | undefined;
 
-    const newMsg: ChatMessage = {
-      id: Date.now().toString(),
-      senderName: "You",
-      text,
-      time: `${h12}:${minutes} ${ampm}`,
-      isOwn: true,
-      isRead: false,
-    };
+    // Command Parsing: /stock SYMBOL [discuss | poll buy/sell]
+    const stockMatch = text.match(/^\/stock\s+["']?([A-Za-z0-9._-]+)["']?\s*(discuss|poll\s+(?:buy|sell))?$/i);
+    if (stockMatch) {
+      messageType = "stock";
+      stockSymbol = stockMatch[1].toUpperCase();
+      const action = (stockMatch[2] || "").trim().toLowerCase();
 
-    setMessages((prev) => [...prev, newMsg]);
-  }, []);
+      if (action === "discuss") {
+        cardAction = "discuss";
+        // Create Discussion entity on the backend
+        try {
+          const res = await apiFetch(`/groups/${finovaId}/discussions/`, {
+            method: "POST",
+            body: JSON.stringify({
+              stock_symbol: stockSymbol,
+              stock_name: stockSymbol,
+              discussion_type: "buy",
+              reasoning: `Discussion thread for ${stockSymbol}`,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            discussionId = data.id;
+          }
+        } catch (e) {
+          console.error("Failed to create discussion:", e);
+        }
+      } else if (action.startsWith("poll")) {
+        cardAction = "poll";
+        pollDirection = action.includes("sell") ? "sell" : "buy";
+        // Create Discussion + TradePoll via direct-vote
+        try {
+          const discRes = await apiFetch(`/groups/${finovaId}/discussions/`, {
+            method: "POST",
+            body: JSON.stringify({
+              stock_symbol: stockSymbol,
+              stock_name: stockSymbol,
+              discussion_type: pollDirection,
+              reasoning: `Poll to ${pollDirection} ${stockSymbol}`,
+              required_capital: 0,
+            }),
+          });
+          if (discRes.ok) {
+            const discData = await discRes.json();
+            discussionId = discData.id;
+            // Trigger direct-vote to create TradePoll immediately
+            const voteRes = await apiFetch(`/groups/${finovaId}/discussions/${discData.id}/direct-vote/`, {
+              method: "POST",
+            });
+            if (voteRes.ok) {
+              const voteData = await voteRes.json();
+              pollId = voteData.poll_id;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to create poll:", e);
+        }
+      }
+    }
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ content, message_type: messageType, stock_symbol: stockSymbol }));
+      
+      // Optimistic UI update
+      const now = new Date();
+      const msg: ChatMessage = {
+        id: Date.now().toString() + "_optimistic",
+        senderName: "You",
+        text: content,
+        time: `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`,
+        isOwn: true,
+        isRead: false,
+        avatarInitials: "YO",
+        messageType,
+        stockSymbol: stockSymbol || undefined,
+        cardAction: cardAction || undefined,
+        pollDirection: pollDirection || undefined,
+        discussionId,
+        pollId,
+        createdAt: now.toISOString(),
+      };
+      setMessages((prev) => [...prev, msg]);
+    } else {
+      console.error("WebSocket is not connected");
+    }
+  }, [finovaId]);
 
   const handleLongPress = useCallback(
     (messageId: string, position: { x: number; y: number }, text: string) => {
@@ -110,24 +282,66 @@ export default function GroupChatPage() {
     );
   }, [contextMenu.messageId]);
 
-  const handleCopy = useCallback(() => {
-    // Copy handled inside MessageContextMenu
-  }, []);
-
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, visible: false }));
   }, []);
+
+  const handleDiscussClick = useCallback((symbol: string, discussionId?: string) => {
+    // Navigate to the discussion thread page
+    const params = new URLSearchParams({
+      groupId: groupId || '',
+      finovaId: finovaId,
+      symbol: symbol,
+      ...(discussionId ? { discussionId } : {}),
+    });
+    window.location.href = `/groups/chat/discussion?${params.toString()}`;
+  }, [groupId, finovaId]);
+
+  const handleVoteSubmit = useCallback(async (pollIdToVote: string, choice: string) => {
+    try {
+      // Capital contribution gate: check if user has deposited
+      const walletRes = await apiFetch(`/groups/${finovaId}/wallet/`);
+      if (walletRes.ok) {
+        const walletData = await walletRes.json();
+        const userTransactions = walletData.transactions?.filter(
+          (t: any) => t.transaction_type === 'deposit'
+        ) || [];
+        
+        if (userTransactions.length === 0) {
+          // User hasn't contributed — prompt them
+          setShowCapitalModal(true);
+          alert("You must contribute to the pool capital before voting. Please deposit first.");
+          return;
+        }
+      }
+
+      const res = await apiFetch(`/groups/${finovaId}/polls/${pollIdToVote}/vote/`, {
+        method: "POST",
+        body: JSON.stringify({ choice }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log("Vote recorded:", data);
+      } else {
+        const errData = await res.json();
+        alert(errData.error || "Failed to vote.");
+      }
+    } catch (e) {
+      console.error("Vote submission failed:", e);
+    }
+  }, [finovaId]);
 
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Header */}
       <ChatHeader
-        groupName="Eco Alpha Core"
-        groupInitials="EA"
+        groupName={groupDetails.name}
+        groupInitials={groupDetails.isLoading ? ".." : groupDetails.name.substring(0, 2).toUpperCase()}
         avatarBg="#e8f5e9"
         avatarTextColor="#2e7d32"
-        pooledCapital="$18.2K"
+        pooledCapital={groupDetails.capital > 0 ? `₹${groupDetails.capital.toLocaleString()}` : "₹0"}
         isActive={true}
+        onCapitalClick={() => setShowCapitalModal(true)}
       />
 
       {/* Date Separator */}
@@ -144,7 +358,6 @@ export default function GroupChatPage() {
       >
         <div className="mt-auto">
           {messages.map((msg, idx) => {
-            // Show sender name if this is not own message and sender changed from previous
             const prevMsg = idx > 0 ? messages[idx - 1] : null;
             const showSender =
               !msg.isOwn &&
@@ -156,9 +369,14 @@ export default function GroupChatPage() {
                 message={msg}
                 showSender={showSender}
                 onLongPress={handleLongPress}
+                groupFinovaId={finovaId}
+                myFinovaId={myFinovaId}
+                onDiscussClick={handleDiscussClick}
+                onVoteSubmit={handleVoteSubmit}
               />
             );
           })}
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
@@ -171,9 +389,30 @@ export default function GroupChatPage() {
         position={contextMenu.position}
         messageText={contextMenu.messageText}
         onDelete={handleDelete}
-        onCopy={handleCopy}
+        onCopy={() => {}}
         onClose={closeContextMenu}
       />
+
+      <GroupCapitalModal
+        isOpen={showCapitalModal}
+        onClose={() => setShowCapitalModal(false)}
+        finovaId={finovaId}
+        currentCapital={groupDetails.capital}
+        onSuccess={() => {
+          // Simply refetch group details to update pool capital visually
+          apiFetch(`/groups/${finovaId}/`)
+            .then(res => res.json())
+            .then(data => setGroupDetails(prev => ({...prev, capital: data.wallet ? parseFloat(data.wallet.current_balance) : 0})));
+        }}
+      />
     </div>
+  );
+}
+
+export default function GroupChatPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ChatComponent />
+    </Suspense>
   );
 }

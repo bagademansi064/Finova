@@ -11,6 +11,7 @@ interface ChatHeaderProps {
   avatarTextColor?: string;
   pooledCapital: string;
   isActive?: boolean;
+  onCapitalClick?: () => void;
 }
 
 export default function ChatHeader({
@@ -21,6 +22,7 @@ export default function ChatHeader({
   avatarTextColor = "#00695C",
   pooledCapital,
   isActive = true,
+  onCapitalClick,
 }: ChatHeaderProps) {
   const router = useRouter();
 
@@ -57,9 +59,14 @@ export default function ChatHeader({
           {groupName}
         </h1>
         <div className="flex items-center gap-1.5 mt-0.5">
-          <span className="text-[11px] font-medium text-[#6b7c75]">
-            Pooled Capital: {pooledCapital}
-          </span>
+          <button 
+            onClick={onCapitalClick}
+            className="flex items-center gap-0.5 px-2 py-0.5 -ml-2 rounded-md hover:bg-gray-100 transition-colors cursor-pointer text-left"
+          >
+            <span className="text-[11px] font-medium text-[#6b7c75]">
+              Pooled Capital: <span className="font-bold text-[#0E1B19]">{pooledCapital}</span>
+            </span>
+          </button>
           {isActive && (
             <>
               <span className="text-[11px] text-[#6b7c75]">•</span>

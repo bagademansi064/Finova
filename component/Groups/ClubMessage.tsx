@@ -10,6 +10,7 @@ interface ClubMessageProps {
   avatarBg?: string;
   avatarTextColor?: string;
   avatarUrl?: string;
+  href?: string;
 }
 
 export default function ClubMessage({
@@ -19,9 +20,10 @@ export default function ClubMessage({
   avatarBg = "#e0f2f1",
   avatarTextColor = "#00695C",
   avatarUrl,
+  href = "#",
 }: ClubMessageProps) {
   return (
-    <Link href="/groups/chat" className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm animate-fade-in-up cursor-pointer transition-shadow hover:shadow-md no-underline">
+    <Link href={href} className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm animate-fade-in-up cursor-pointer transition-shadow hover:shadow-md no-underline">
       {/* Avatar */}
       {avatarUrl ? (
         <img

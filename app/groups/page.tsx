@@ -12,33 +12,7 @@ import ClubMessage from "@/component/Groups/ClubMessage";
 import EmptyState from "@/component/Groups/EmptyState";
 import CreateClubFAB from "@/component/Groups/CreateClubFAB";
 
-/* ── Mock Data ──────────────────────────────────────────────── */
-
-const clubs = [
-  {
-    name: "Tech Bulls Syndicate",
-    initials: "TB",
-    avatarBg: "#e0f2f1",
-    avatarTextColor: "#00695C",
-    description: "Should we rotate out of legacy semi-conductors?",
-    members: 24,
-    aum: "$42.5k",
-    returnPercent: "8.1%",
-    isPositive: true,
-  },
-  {
-    name: "Eco Alpha Core",
-    initials: "EA",
-    avatarBg: "#e8f5e9",
-    avatarTextColor: "#2e7d32",
-    description: "Monthly dividend distribution confirmed.",
-    members: 12,
-    aum: "$19.2k",
-    returnPercent: "12.4%",
-    isPositive: true,
-  },
-];
-
+// Keep mock messages for UI spacing until websocket is fully bound universally.
 const messages = [
   {
     name: "Pranav M.",
@@ -58,8 +32,30 @@ const messages = [
 
 /* ── Page ────────────────────────────────────────────────────── */
 
+import { apiFetch } from "@/lib/api";
+
 export default function GroupsPage() {
-  // In a real app these would come from a backend
+  const [clubs, setClubs] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    async function fetchGroups() {
+      try {
+        const response = await apiFetch("/groups/");
+        if (response.ok) {
+          const data = await response.json();
+          const clubList = Array.isArray(data) ? data : (data.results || []);
+          setClubs(clubList);
+        }
+      } catch (e) {
+        console.error("Failed to load groups", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchGroups();
+  }, []);
+
   const hasClubs = clubs.length > 0;
 
   return (
@@ -79,26 +75,30 @@ export default function GroupsPage() {
         <ClubsFilterTabs />
 
         {/* The Garden — Collapsible */}
-        <CollapsibleSection
-          title="The Garden"
-          rightLabel="Top Performers"
-          badgeCount={1}
-          badgeText="1 new"
-          defaultExpanded={true}
-        >
-          <TheGarden />
-        </CollapsibleSection>
+        {hasClubs && (
+          <CollapsibleSection
+            title="The Garden"
+            rightLabel="Top Performers"
+            badgeCount={1}
+            badgeText="1 new"
+            defaultExpanded={true}
+          >
+            <TheGarden />
+          </CollapsibleSection>
+        )}
 
         {/* Active Proposals — Collapsible */}
-        <CollapsibleSection
-          title="Active Proposals"
-          rightLabel="Needs Vote"
-          badgeCount={2}
-          badgeText="2 pending"
-          defaultExpanded={true}
-        >
-          <ActiveProposals />
-        </CollapsibleSection>
+        {hasClubs && (
+          <CollapsibleSection
+            title="Active Proposals"
+            rightLabel="Needs Vote"
+            badgeCount={2}
+            badgeText="2 pending"
+            defaultExpanded={true}
+          >
+            <ActiveProposals />
+          </CollapsibleSection>
+        )}
 
         {/* Your Clubs Section */}
         <div className="mt-5 px-5">
@@ -109,21 +109,45 @@ export default function GroupsPage() {
 
         {hasClubs ? (
           <div className="mt-3 px-5 space-y-3 stagger-children">
-            {/* Club 1 */}
-            <ClubCard {...clubs[0]} />
-
-            {/* Message from Pranav */}
-            <ClubMessage {...messages[0]} />
-
-            {/* Club 2 */}
-            <ClubCard {...clubs[1]} />
-
-            {/* Message from Sarah */}
-            <ClubMessage {...messages[1]} />
+            {clubs.map((club) => (
+              <ClubCard
+                key={club.id}
+                id={club.id}
+                finova_id={club.finova_id}
+                name={club.name}
+                initials={club.name.substring(0, 2).toUpperCase()}
+                avatarBg="#e0f2f1"
+                avatarTextColor="#00695C"
+                description={club.description || "Active investment group"}
+                members={club.member_count}
+                aum="₹"
+                returnPercent="0.0%"
+                isPositive={true}
+              />
+            ))}
           </div>
         ) : (
-          /* Empty state — shown when no clubs or contacts */
-          <EmptyState />
+          !loading && <EmptyState />
+        )}
+
+        {/* Recent Messages Section */}
+        {hasClubs && (
+          <>
+            <div className="mt-6 px-5">
+              <h3 className="text-[17px] font-bold text-[#0E1B19] animate-fade-in-up">
+                Recent Chats
+              </h3>
+            </div>
+            <div className="mt-3 px-5 space-y-3 stagger-children">
+              {clubs.slice(0, messages.length).map((club, idx) => (
+                <ClubMessage 
+                  key={`msg-${club.id}`} 
+                  {...messages[idx]} 
+                  href={`/groups/chat?groupId=${club.id}&finovaId=${club.finova_id}`}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
 

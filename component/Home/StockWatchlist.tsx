@@ -1,48 +1,45 @@
 "use client";
-import React, { useState } from "react";
-import { Plus, ChevronRight } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Plus, ChevronRight, Loader2 } from "lucide-react";
 import StockItem from "./StockItem";
+import { apiFetch } from '@/lib/api';
 
 const tabs = ["Invested", "Watchlist 1", "Watchlist 2"];
 
-const stocksData = [
-  {
-    name: "HDFCBANK",
-    exchange: "NSE",
-    badge: "EVENT",
-    price: "799.45",
-    change: "-10.25",
-    changePercent: "-1.26%",
-    isPositive: false,
-  },
-  {
-    name: "INFY",
-    exchange: "NSE",
-    price: "1,311.40",
-    change: "6.30",
-    changePercent: "+0.48%",
-    isPositive: true,
-  },
-  {
-    name: "TCS",
-    exchange: "BSE",
-    price: "2,571.75",
-    change: "17.25",
-    changePercent: "+0.67%",
-    isPositive: true,
-  },
-  {
-    name: "ONGC",
-    exchange: "NSE",
-    price: "282.95",
-    change: "-4.85",
-    changePercent: "-1.67%",
-    isPositive: false,
-  },
-];
-
 export default function StockWatchlist() {
   const [activeTab, setActiveTab] = useState(0);
+  const [stocksData, setStocksData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMarketData = async () => {
+      try {
+        setLoading(true);
+        // Using sample NIFTY 50 blue chips default string, replace later if user has a custom watchlist
+        const response = await apiFetch('/market/live/?symbols=HDFCBANK.NS,INFY.NS,TCS.NS,ONGC.NS');
+        const data = await response.json();
+        
+        // Transform Zerodha-Style backend dictionary to Array
+        const formattedData = Object.values(data).map((stock: any) => ({
+          name: stock.symbol.replace('.NS', ''),
+          exchange: "NSE",
+          badge: stock.dividend_yield ? "DIVIDEND" : null,
+          price: stock.current_price,
+          change: (stock.current_price * (parseFloat(stock.percent_change) / 100)).toFixed(2),
+          changePercent: `${parseFloat(stock.percent_change) > 0 ? '+' : ''}${stock.percent_change}%`,
+          isPositive: parseFloat(stock.percent_change) >= 0,
+        }));
+
+        setStocksData(formattedData);
+      } catch (err) {
+        console.error("Failed to load market data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMarketData();
+  }, []);
 
   return (
     <div
@@ -76,18 +73,24 @@ export default function StockWatchlist() {
 
       {/* Stock List */}
       <div className="mt-2 divide-y divide-[#f0f2f1] stagger-children">
-        {stocksData.map((stock) => (
-          <StockItem
-            key={stock.name}
-            name={stock.name}
-            exchange={stock.exchange}
-            badge={stock.badge}
-            price={stock.price}
-            change={stock.change}
-            changePercent={stock.changePercent}
-            isPositive={stock.isPositive}
-          />
-        ))}
+        {loading ? (
+          <div className="flex justify-center p-4">
+             <Loader2 className="animate-spin text-[#0D624B]" />
+          </div>
+        ) : (
+          stocksData.map((stock) => (
+            <StockItem
+              key={stock.name}
+              name={stock.name}
+              exchange={stock.exchange}
+              badge={stock.badge}
+              price={stock.price}
+              change={stock.change}
+              changePercent={stock.changePercent}
+              isPositive={stock.isPositive}
+            />
+          ))
+        )}
       </div>
 
       {/* View More */}
