@@ -1,61 +1,128 @@
 "use client";
-import React, { useState } from "react";
-import { ArrowLeft, MoreVertical, Building2, LogOut, Shield, Crown } from "lucide-react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, Suspense } from "react";
+import { ArrowLeft, MoreVertical, Building2, LogOut, Shield, Crown, Calendar } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { apiFetch } from "@/lib/api";
 
-/* ── Mock Data ──────────────────────────────────────────────── */
-const clubData = {
+/* ── Fallback Mock Data ──────────────────────────────────────── */
+const fallbackClub = {
   name: "Eco Alpha Core",
-  avatarBg: "#1A3C34",
-  avatarPattern: true,
   aum: "$18.2K",
   createdDate: "Jan 2024",
   membersActive: 4,
 };
 
-const members = [
-  {
-    id: "1",
-    name: "Marcus Lee",
-    joinedDate: "Jan 2024",
-    role: "ADMIN" as const,
-    avatarBg: "#f3e8ff",
-    avatarTextColor: "#7c3aed",
-    initials: "ML",
-  },
-  {
-    id: "2",
-    name: "Sarah Chen",
-    joinedDate: "Feb 2024",
-    role: "MEMBER" as const,
-    avatarBg: "#fef3c7",
-    avatarTextColor: "#d97706",
-    initials: "SC",
-  },
-  {
-    id: "3",
-    name: "Jordan Smith",
-    joinedDate: "Mar 2024",
-    role: "MEMBER" as const,
-    avatarBg: "#dbeafe",
-    avatarTextColor: "#2563eb",
-    initials: "JS",
-  },
-  {
-    id: "4",
-    name: "David Chen",
-    joinedDate: "Apr 2024",
-    role: "MEMBER" as const,
-    avatarBg: "#d1fae5",
-    avatarTextColor: "#059669",
-    initials: "DC",
-  },
+const fallbackMembers = [
+  { id: "1", name: "Marcus Lee", joinedDate: "Jan 2024", role: "ADMIN" as const, avatarBg: "#f3e8ff", avatarTextColor: "#7c3aed", initials: "ML" },
+  { id: "2", name: "Sarah Chen", joinedDate: "Feb 2024", role: "MEMBER" as const, avatarBg: "#fef3c7", avatarTextColor: "#d97706", initials: "SC" },
+  { id: "3", name: "Jordan Smith", joinedDate: "Mar 2024", role: "MEMBER" as const, avatarBg: "#dbeafe", avatarTextColor: "#2563eb", initials: "JS" },
+  { id: "4", name: "David Chen", joinedDate: "Apr 2024", role: "MEMBER" as const, avatarBg: "#d1fae5", avatarTextColor: "#059669", initials: "DC" },
 ];
 
-/* ── Component ──────────────────────────────────────────────── */
-export default function ClubDetailsPage() {
+const avatarColors = [
+  { bg: "#f3e8ff", text: "#7c3aed" },
+  { bg: "#fef3c7", text: "#d97706" },
+  { bg: "#dbeafe", text: "#2563eb" },
+  { bg: "#d1fae5", text: "#059669" },
+  { bg: "#ffe4e6", text: "#e11d48" },
+  { bg: "#e0f2fe", text: "#0284c7" },
+];
+
+/* ── Inner Component (uses useSearchParams) ──────────────────── */
+function ClubDetailsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const finovaId = searchParams.get("finovaId");
+
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [clubData, setClubData] = useState(fallbackClub);
+  const [members, setMembers] = useState(fallbackMembers);
+  const [isLoading, setIsLoading] = useState(!!finovaId);
+
+  useEffect(() => {
+    if (!finovaId) return;
+
+    async function fetchClubData() {
+      try {
+        const res = await apiFetch(`/groups/${finovaId}/`);
+        if (res.ok) {
+          const data = await res.json();
+          const created = data.created_at
+            ? new Date(data.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })
+            : fallbackClub.createdDate;
+          const balance = data.wallet ? parseFloat(data.wallet.current_balance) : 0;
+
+          setClubData({
+            name: data.name || fallbackClub.name,
+            aum: balance > 0 ? `₹${balance.toLocaleString()}` : fallbackClub.aum,
+            createdDate: created,
+            membersActive: data.member_count || fallbackClub.membersActive,
+          });
+
+          // Fetch members
+          const membersRes = await apiFetch(`/groups/${finovaId}/members/`);
+          if (membersRes.ok) {
+            const membersData = await membersRes.json();
+            const membersList = Array.isArray(membersData) ? membersData : (membersData.results || []);
+            if (membersList.length > 0) {
+              setMembers(
+                membersList.map((m: any, idx: number) => {
+                  const colors = avatarColors[idx % avatarColors.length];
+                  const name = m.user?.full_name || m.user?.username || m.finova_id || `Member ${idx + 1}`;
+                  const initials = name.split(" ").map((w: string) => w[0]).join("").substring(0, 2).toUpperCase();
+                  const joined = m.joined_at
+                    ? new Date(m.joined_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })
+                    : `Member #${idx + 1}`;
+                  return {
+                    id: m.id || String(idx),
+                    name,
+                    joinedDate: joined,
+                    role: (m.role === "admin" || m.is_admin) ? "ADMIN" as const : "MEMBER" as const,
+                    avatarBg: colors.bg,
+                    avatarTextColor: colors.text,
+                    initials,
+                  };
+                })
+              );
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch club details:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchClubData();
+  }, [finovaId]);
+
+  const handleLeave = async () => {
+    if (!finovaId) {
+      router.push("/groups");
+      return;
+    }
+    try {
+      const res = await apiFetch(`/groups/${finovaId}/leave/`, { method: "POST" });
+      if (res.ok) {
+        router.push("/groups");
+      } else {
+        alert("Failed to leave club. Please try again.");
+      }
+    } catch {
+      router.push("/groups");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#f5f7f6] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-3 border-[#0D624B] border-t-transparent rounded-full animate-spin" />
+          <span className="text-[13px] text-[#6b7c75] font-medium">Loading club details...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f5f7f6] flex flex-col">
@@ -102,7 +169,9 @@ export default function ClubDetailsPage() {
                 </defs>
                 <circle cx="60" cy="60" r="60" fill="url(#leafPattern)" />
               </svg>
-              <span className="text-white text-3xl font-bold z-10 drop-shadow-sm">EA</span>
+              <span className="text-white text-3xl font-bold z-10 drop-shadow-sm">
+                {clubData.name.substring(0, 2).toUpperCase()}
+              </span>
             </div>
             {/* Glow ring */}
             <div className="absolute -inset-1 rounded-full bg-gradient-to-b from-[#0D624B]/20 to-transparent -z-10 blur-sm" />
@@ -128,9 +197,12 @@ export default function ClubDetailsPage() {
               </span>
             </div>
             <span className="text-[13px] text-[#8a9690] font-medium">•</span>
-            <span className="text-[13px] text-[#6b7c75] font-medium">
-              Created {clubData.createdDate}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <Calendar size={13} strokeWidth={2} className="text-[#6b7c75]" />
+              <span className="text-[13px] text-[#6b7c75] font-medium">
+                Created {clubData.createdDate}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -222,10 +294,7 @@ export default function ClubDetailsPage() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    // Handle leave club
-                    router.push("/groups");
-                  }}
+                  onClick={handleLeave}
                   className="px-6 py-2.5 rounded-full bg-[#e53935] text-white font-semibold text-[13px] transition-all active:scale-95 shadow-md"
                 >
                   Confirm Leave
@@ -236,5 +305,20 @@ export default function ClubDetailsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ── Page Export with Suspense ──────────────────────────────── */
+export default function ClubDetailsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#f5f7f6] flex items-center justify-center">
+          <div className="w-10 h-10 border-3 border-[#0D624B] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <ClubDetailsContent />
+    </Suspense>
   );
 }

@@ -12,6 +12,7 @@ interface ChatHeaderProps {
   pooledCapital: string;
   isActive?: boolean;
   onCapitalClick?: () => void;
+  onHeaderClick?: () => void;
 }
 
 export default function ChatHeader({
@@ -23,6 +24,7 @@ export default function ChatHeader({
   pooledCapital,
   isActive = true,
   onCapitalClick,
+  onHeaderClick,
 }: ChatHeaderProps) {
   const router = useRouter();
 
@@ -37,47 +39,50 @@ export default function ChatHeader({
         <ArrowLeft size={22} strokeWidth={2} className="text-[#0E1B19]" />
       </button>
 
-      {/* Group Avatar */}
-      {groupAvatar ? (
-        <img
-          src={groupAvatar}
-          alt={groupName}
-          className="h-10 w-10 flex-shrink-0 rounded-full object-cover ring-2 ring-[#e5e8e6]"
-        />
-      ) : (
-        <div
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-bold ring-2 ring-[#e5e8e6]"
-          style={{ backgroundColor: avatarBg, color: avatarTextColor }}
-        >
-          {groupInitials || groupName.charAt(0)}
-        </div>
-      )}
-
-      {/* Title + Status */}
-      <div className="flex-1 min-w-0">
-        <h1 className="text-[16px] font-bold text-[#0E1B19] truncate leading-tight">
-          {groupName}
-        </h1>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <button 
-            onClick={onCapitalClick}
-            className="flex items-center gap-0.5 px-2 py-0.5 -ml-2 rounded-md hover:bg-gray-100 transition-colors cursor-pointer text-left"
+      {/* Clickable Avatar + Title area → navigates to details */}
+      <button
+        onClick={onHeaderClick}
+        className="flex items-center gap-3 flex-1 min-w-0 text-left transition-colors active:opacity-80 tap-highlight"
+        aria-label="View details"
+      >
+        {/* Group Avatar */}
+        {groupAvatar ? (
+          <img
+            src={groupAvatar}
+            alt={groupName}
+            className="h-10 w-10 flex-shrink-0 rounded-full object-cover ring-2 ring-[#e5e8e6]"
+          />
+        ) : (
+          <div
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-bold ring-2 ring-[#e5e8e6]"
+            style={{ backgroundColor: avatarBg, color: avatarTextColor }}
           >
+            {groupInitials || groupName.charAt(0)}
+          </div>
+        )}
+
+        {/* Title + Status */}
+        <div className="flex-1 min-w-0">
+          <h1 className="text-[16px] font-bold text-[#0E1B19] truncate leading-tight">
+            {groupName}
+          </h1>
+          <div className="flex items-center gap-1.5 mt-0.5">
             <span className="text-[11px] font-medium text-[#6b7c75]">
               Pooled Capital: <span className="font-bold text-[#0E1B19]">{pooledCapital}</span>
             </span>
-          </button>
-          {isActive && (
-            <>
-              <span className="text-[11px] text-[#6b7c75]">•</span>
-              <span className="text-[11px] font-medium text-[#00897B] uppercase tracking-wide">
-                Active Now
-              </span>
-            </>
-          )}
+            {isActive && (
+              <>
+                <span className="text-[11px] text-[#6b7c75]">•</span>
+                <span className="text-[11px] font-medium text-[#00897B] uppercase tracking-wide">
+                  Active Now
+                </span>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      </button>
 
+      {/* Capital click (separate from header navigation) */}
       {/* Actions */}
       <button
         className="flex h-9 w-9 items-center justify-center rounded-full transition-colors active:bg-[#f0f2f1] tap-highlight"

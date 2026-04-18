@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import {
   ArrowLeft,
   MessageSquare,
@@ -8,11 +8,12 @@ import {
   Ban,
   Flag,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import BottomNavBar from "@/component/Home/BottomNavBar";
+import { apiFetch } from "@/lib/api";
 
-/* ── Mock Data ──────────────────────────────────────────────── */
-const contactData = {
+/* ── Fallback Mock Data ──────────────────────────────────────── */
+const fallbackContact = {
   name: "Marcus Lee",
   role: "Senior Investor",
   contactSince: "Jan 2024",
@@ -22,7 +23,7 @@ const contactData = {
   avatarTextColor: "#7c3aed",
 };
 
-const sharedClubs = [
+const fallbackClubs = [
   {
     id: "1",
     name: "Eco Alpha Core",
@@ -41,10 +42,96 @@ const sharedClubs = [
   },
 ];
 
-/* ── Component ──────────────────────────────────────────────── */
-export default function ContactDetailsPage() {
+/* ── Inner Component ─────────────────────────────────────────── */
+function ContactDetailsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const contactFinovaId = searchParams.get("contactId");
+  const sourceGroupId = searchParams.get("groupId");
+  const sourceFinovaId = searchParams.get("finovaId");
+
   const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+  const [contactData, setContactData] = useState(fallbackContact);
+  const [sharedClubs, setSharedClubs] = useState(fallbackClubs);
+  const [isLoading, setIsLoading] = useState(!!contactFinovaId);
+
+  useEffect(() => {
+    if (!contactFinovaId) {
+      setIsLoading(false);
+      return;
+    }
+
+    async function fetchContactData() {
+      try {
+        // Try to fetch user profile
+        const res = await apiFetch(`/users/${contactFinovaId}/`);
+        if (res.ok) {
+          const data = await res.json();
+          const name = data.full_name || data.username || contactFinovaId;
+          const initials = name.split(" ").map((w: string) => w[0]).join("").substring(0, 2).toUpperCase();
+          const since = data.date_joined
+            ? new Date(data.date_joined).toLocaleDateString("en-US", { month: "short", year: "numeric" })
+            : fallbackContact.contactSince;
+
+          setContactData({
+            name,
+            role: data.role || data.investor_type || "Investor",
+            contactSince: since,
+            isOnline: data.is_online ?? true,
+            initials,
+            avatarBg: fallbackContact.avatarBg,
+            avatarTextColor: fallbackContact.avatarTextColor,
+          });
+        }
+
+        // Try to fetch shared groups
+        const groupsRes = await apiFetch(`/groups/`);
+        if (groupsRes.ok) {
+          const groupsData = await groupsRes.json();
+          const groupsList = Array.isArray(groupsData) ? groupsData : (groupsData.results || []);
+          if (groupsList.length > 0) {
+            const clubIcons = ["leaf", "bolt", "chart", "star", "globe"];
+            const clubColors = [
+              { bg: "#d2fae6", color: "#0D624B" },
+              { bg: "#dbeafe", color: "#2563eb" },
+              { bg: "#fef3c7", color: "#d97706" },
+              { bg: "#f3e8ff", color: "#7c3aed" },
+              { bg: "#ffe4e6", color: "#e11d48" },
+            ];
+            setSharedClubs(
+              groupsList.slice(0, 4).map((g: any, idx: number) => ({
+                id: g.id || String(idx),
+                name: g.name,
+                joinedSince: g.created_at
+                  ? new Date(g.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })
+                  : "Recently",
+                iconBg: clubColors[idx % clubColors.length].bg,
+                iconColor: clubColors[idx % clubColors.length].color,
+                icon: clubIcons[idx % clubIcons.length],
+                finovaId: g.finova_id,
+              }))
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch contact details:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchContactData();
+  }, [contactFinovaId]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#f5f7f6] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-3 border-[#0D624B] border-t-transparent rounded-full animate-spin" />
+          <span className="text-[13px] text-[#6b7c75] font-medium">Loading contact...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f5f7f6] flex flex-col">
@@ -142,12 +229,16 @@ export default function ContactDetailsPage() {
 
           {/* Club Cards */}
           <div className="bg-white rounded-2xl shadow-sm border border-[#e5e8e6]/50 overflow-hidden divide-y divide-[#f0f2f1]">
-            {sharedClubs.map((club, idx) => (
+            {sharedClubs.map((club: any, idx: number) => (
               <button
                 key={club.id}
                 className="flex items-center gap-3.5 px-4 py-4 w-full text-left transition-colors active:bg-[#f8faf9] animate-fade-in-up"
                 style={{ animationDelay: `${300 + idx * 60}ms` }}
-                onClick={() => router.push("/groups/chat/club-details")}
+                onClick={() => {
+                  const params = new URLSearchParams();
+                  if (club.finovaId) params.set('finovaId', club.finovaId);
+                  router.push(`/groups/chat/club-details?${params.toString()}`);
+                }}
               >
                 {/* Club Icon */}
                 <div
@@ -236,5 +327,20 @@ export default function ContactDetailsPage() {
       {/* Bottom Navigation */}
       <BottomNavBar />
     </div>
+  );
+}
+
+/* ── Page Export with Suspense ──────────────────────────────── */
+export default function ContactDetailsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#f5f7f6] flex items-center justify-center">
+          <div className="w-10 h-10 border-3 border-[#0D624B] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <ContactDetailsContent />
+    </Suspense>
   );
 }

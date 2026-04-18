@@ -5,7 +5,7 @@ import ChatBubble, { ChatMessage } from "@/component/Groups/Chat/ChatBubble";
 import ChatInput from "@/component/Groups/Chat/ChatInput";
 import MessageContextMenu from "@/component/Groups/Chat/MessageContextMenu";
 import { getAuthToken, WS_BASE_URL, apiFetch } from "@/lib/api";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 
 import GroupCapitalModal from "@/component/Groups/Chat/GroupCapitalModal";
 
@@ -34,6 +34,7 @@ function ChatComponent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
+  const router = useRouter();
   const searchParams = useSearchParams();
   const groupId = searchParams.get('groupId');
   const finovaId = searchParams.get('finovaId') || 'GROUP';
@@ -342,6 +343,12 @@ function ChatComponent() {
         pooledCapital={groupDetails.capital > 0 ? `₹${groupDetails.capital.toLocaleString()}` : "₹0"}
         isActive={true}
         onCapitalClick={() => setShowCapitalModal(true)}
+        onHeaderClick={() => {
+          const params = new URLSearchParams();
+          if (groupId) params.set('groupId', groupId);
+          params.set('finovaId', finovaId);
+          router.push(`/groups/chat/club-details?${params.toString()}`);
+        }}
       />
 
       {/* Date Separator */}
