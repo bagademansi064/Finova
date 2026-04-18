@@ -108,12 +108,35 @@ export default function StockCardBubble({
     return () => clearInterval(interval);
   }, [cardAction, createdAt]);
 
+  const [resolvedPollId, setResolvedPollId] = useState<string | undefined>(pollId);
+
   // Fetch poll details for voter participation
   useEffect(() => {
-    if (cardAction !== "poll" || !pollId || !groupFinovaId) return;
+    if (cardAction !== "poll" || !groupFinovaId) return;
+
     async function fetchPoll() {
       try {
-        const res = await apiFetch(`/groups/${groupFinovaId}/polls/${pollId}/`);
+        let targetPollId = resolvedPollId;
+
+        // If we don't have a pollId, search the group's polls by symbol
+        if (!targetPollId) {
+          const listRes = await apiFetch(`/groups/${groupFinovaId}/polls/`);
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            const polls = Array.isArray(listData) ? listData : (listData.results || []);
+            const match = polls.find((p: any) =>
+              (p.discussion_stock_symbol || '').toUpperCase() === symbol.toUpperCase()
+            );
+            if (match) {
+              targetPollId = match.id;
+              setResolvedPollId(match.id);
+            }
+          }
+        }
+
+        if (!targetPollId) return;
+
+        const res = await apiFetch(`/groups/${groupFinovaId}/polls/${targetPollId}/`);
         if (res.ok) {
           const data = await res.json();
           setPollDetails(data);
@@ -129,20 +152,58 @@ export default function StockCardBubble({
     }
     fetchPoll();
     const interval = setInterval(fetchPoll, 10000);
-    return () => clearInterval(interval);
-  }, [cardAction, pollId, groupFinovaId, myFinovaId]);
+
+    // Listen for real-time poll update events from the WebSocket handler
+    const handleRemoteUpdate = (e: any) => {
+      if (e.detail.pollId === resolvedPollId || (e.detail.symbol?.toUpperCase() === symbol.toUpperCase())) {
+        fetchPoll();
+      }
+    };
+    window.addEventListener('finova:poll-update', handleRemoteUpdate);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('finova:poll-update', handleRemoteUpdate);
+    };
+  }, [cardAction, resolvedPollId, groupFinovaId, myFinovaId, symbol]);
 
   const handleVote = async (choice: string) => {
-    if (!pollId || hasVoted || voting) return;
+    const votePollId = resolvedPollId;
+    
+    if (!votePollId) {
+      console.warn("Cannot vote: pollId not yet resolved for", symbol);
+      alert("Still resolving poll data. Please try again in a second.");
+      return;
+    }
+    
+    if (hasVoted) {
+      alert("You have already voted on this poll.");
+      return;
+    }
+    
+    if (voting) return;
     setVoting(true);
     setVoteChoice(choice);
     try {
-      if (onVoteSubmit) onVoteSubmit(pollId, choice);
-      setHasVoted(true);
-      const res = await apiFetch(`/groups/${groupFinovaId}/polls/${pollId}/`);
-      if (res.ok) setPollDetails(await res.json());
+      // Call the vote API directly from the card
+      const res = await apiFetch(`/groups/${groupFinovaId}/polls/${votePollId}/vote/`, {
+        method: "POST",
+        body: JSON.stringify({ choice }),
+      });
+      if (res.ok) {
+        setHasVoted(true);
+        // Refresh poll details to update circles + consensus
+        const pollRes = await apiFetch(`/groups/${groupFinovaId}/polls/${votePollId}/`);
+        if (pollRes.ok) setPollDetails(await pollRes.json());
+      } else {
+        const errData = await res.json();
+        alert(errData.error || "Failed to vote.");
+        setVoteChoice(null);
+      }
     } catch (e) {
       console.error("Vote failed:", e);
+      alert("Network error. Please try again.");
+      setVoteChoice(null);
     } finally {
       setVoting(false);
     }
@@ -207,10 +268,10 @@ export default function StockCardBubble({
               </div>
             ) : stockData ? (
               <>
-                <div className="flex items-end justify-between mb-3">
+                <div className="flex items-end justify-between mb-4">
                   <div>
-                    <p className="text-emerald-200/50 text-[10px] font-bold uppercase tracking-widest mb-0.5">Current Price</p>
-                    <p className="text-[28px] font-black text-white leading-none tracking-tight">
+                    <p className="text-emerald-200/50 text-[10px] font-bold uppercase tracking-widest mb-1">Current Price</p>
+                    <p className="text-[32px] font-black text-white leading-none tracking-tight">
                       ₹{fmt(stockData.current_price)}
                     </p>
                   </div>
@@ -225,18 +286,24 @@ export default function StockCardBubble({
                 </div>
 
                 {/* ── Stats Grid ──────────────────────── */}
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.06)" }}>
-                    <p className="text-emerald-200/40 text-[8px] font-bold uppercase tracking-widest">Prev Close</p>
-                    <p className="text-white text-[13px] font-bold mt-0.5">₹{fmt(stockData.previous_close)}</p>
+                <div className="grid grid-cols-2 gap-2.5 mb-4">
+                  <div className="grid grid-cols-2 gap-2.5 col-span-2">
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.06)" }}>
+                      <p className="text-emerald-200/40 text-[9px] font-bold uppercase tracking-widest">Polled Price</p>
+                      <p className="text-white text-[15px] font-black mt-1">₹{fmt(Number(pollDetails?.polled_price || 0))}</p>
+                    </div>
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.06)" }}>
+                      <p className="text-emerald-200/40 text-[9px] font-bold uppercase tracking-widest">Prev Close</p>
+                      <p className="text-white text-[15px] font-black mt-1">₹{fmt(stockData.previous_close)}</p>
+                    </div>
                   </div>
-                  <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.06)" }}>
-                    <p className="text-emerald-200/40 text-[8px] font-bold uppercase tracking-widest">Day High</p>
-                    <p className="text-emerald-300 text-[13px] font-bold mt-0.5">₹{fmt(stockData.day_high)}</p>
+                  <div className="rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.06)" }}>
+                    <p className="text-emerald-200/40 text-[9px] font-bold uppercase tracking-widest">Day High</p>
+                    <p className="text-emerald-300 text-[15px] font-black mt-1">₹{fmt(stockData.day_high)}</p>
                   </div>
-                  <div className="rounded-xl px-2.5 py-2" style={{ background: "rgba(255,255,255,0.06)" }}>
-                    <p className="text-emerald-200/40 text-[8px] font-bold uppercase tracking-widest">Day Low</p>
-                    <p className="text-red-300 text-[13px] font-bold mt-0.5">₹{fmt(stockData.day_low)}</p>
+                  <div className="rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.06)" }}>
+                    <p className="text-emerald-200/40 text-[9px] font-bold uppercase tracking-widest">Day Low</p>
+                    <p className="text-red-300 text-[15px] font-black mt-1">₹{fmt(stockData.day_low)}</p>
                   </div>
                 </div>
 

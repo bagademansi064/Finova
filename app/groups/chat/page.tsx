@@ -235,6 +235,13 @@ function ChatComponent() {
           });
         }
       }
+
+      if (data.type === 'poll_update') {
+        console.log("Real-time poll update received:", data);
+        window.dispatchEvent(new CustomEvent('finova:poll-update', { 
+          detail: { pollId: data.poll_id, symbol: data.stock_symbol } 
+        }));
+      }
     };
 
     ws.onerror = (error) => {
