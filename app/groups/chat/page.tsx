@@ -8,16 +8,20 @@ import { getAuthToken, WS_BASE_URL, apiFetch } from "@/lib/api";
 import { useSearchParams, useRouter } from "next/navigation";
 
 import GroupCapitalModal from "@/component/Groups/Chat/GroupCapitalModal";
+import InviteMemberModal from "@/component/Groups/Chat/InviteMemberModal";
 
 function ChatComponent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [myFinovaId, setMyFinovaId] = useState<string>("");
   const [showCapitalModal, setShowCapitalModal] = useState(false);
-  const [groupDetails, setGroupDetails] = useState<{name: string, capital: number, isLoading: boolean}>({
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [groupDetails, setGroupDetails] = useState<{ name: string, capital: number, isLoading: boolean }>({
     name: "Loading...",
     capital: 0,
     isLoading: true
   });
+  const [typingUsers, setTypingUsers] = useState<Map<string, { username: string, timeout: any }>>(new Map());
+  const typingTimeouts = useRef<Record<string, any>>({});
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     position: { x: number; y: number };
@@ -49,12 +53,12 @@ function ChatComponent() {
           apiFetch(`/groups/${finovaId}/`),
           apiFetch(`/groups/${finovaId}/messages/`)
         ]);
-        
+
         let personalFinovaId = "";
         if (meRes.ok) {
-           const meData = await meRes.json();
-           personalFinovaId = meData.finova_id;
-           setMyFinovaId(personalFinovaId);
+          const meData = await meRes.json();
+          personalFinovaId = meData.finova_id;
+          setMyFinovaId(personalFinovaId);
         }
 
         if (groupRes.ok) {
@@ -65,20 +69,22 @@ function ChatComponent() {
             isLoading: false
           });
         }
-        
+
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           const history = (msgData.results || msgData).map((m: any) => {
             const dt = new Date(m.created_at);
             const isMyText = personalFinovaId ? m.sender_finova_id === personalFinovaId : m.sender_finova_id === 'You';
-            
+
             // Detect cardAction from message content
             let cardAction: "discuss" | "poll" | undefined;
             let pollDirection: "buy" | "sell" | undefined;
             const content = m.content || "";
             if (content.match(/discuss$/i)) cardAction = "discuss";
-            else if (content.match(/poll\s+sell$/i)) { cardAction = "poll"; pollDirection = "sell"; }
-            else if (content.match(/poll\s+buy$/i)) { cardAction = "poll"; pollDirection = "buy"; }
+            else if (content.match(/poll(\s+(buy|sell))?$/i)) {
+              cardAction = "poll";
+              pollDirection = content.match(/sell/i) ? "sell" : "buy";
+            }
 
             return {
               id: m.id,
@@ -119,25 +125,78 @@ function ChatComponent() {
     ws.onopen = () => {
       if (isMounted) console.log(`Connected to group ${groupId}`);
     };
-    
+
     ws.onmessage = (event) => {
       if (!isMounted) return;
       const data = JSON.parse(event.data);
-      if (data.type === 'chat_message_broadcast') {
+
+      if (data.type === 'group_message_broadcast') {
         const now = new Date();
         const isMyText = myFinovaId ? data.sender_finova_id === myFinovaId : data.sender_finova_id === 'You';
-        const msg: ChatMessage = {
-          id: data.id || Date.now().toString(),
-          senderName: isMyText ? "You" : data.sender_finova_id,
-          text: data.content,
-          time: `${now.getHours()}:${now.getMinutes()} ${now.getHours() >= 12 ? 'PM' : 'AM'}`,
-          isOwn: isMyText, 
-          isRead: false,
-          avatarInitials: (data.sender_finova_id || "U").substring(0, 2).toUpperCase(),
-          messageType: data.message_type,
-          stockSymbol: data.stock_symbol
-        };
-        setMessages((prev) => [...prev, msg]);
+
+        // Don't add if it's our own optimistic message (we'll see it from our own send)
+        // Actually, it's better to let the server broadcast be the source of truth
+        setMessages((prev) => {
+          if (prev.find(m => m.id === data.id)) return prev;
+          const msg: ChatMessage = {
+            id: data.id || Date.now().toString(),
+            senderName: isMyText ? "You" : data.sender_username || data.sender_finova_id,
+            text: data.content,
+            time: `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`,
+            isOwn: isMyText,
+            isRead: false,
+            avatarInitials: (data.sender_username || data.sender_finova_id || "U").substring(0, 2).toUpperCase(),
+            messageType: data.message_type,
+            stockSymbol: data.stock_symbol,
+            createdAt: data.created_at
+          };
+          return [...prev, msg];
+        });
+
+        // Clear typing status for this user when they send a message
+        setTypingUsers(prev => {
+          const next = new Map(prev);
+          next.delete(data.sender_finova_id);
+          return next;
+        });
+      }
+
+      if (data.type === 'group_user_typing') {
+        if (data.sender_finova_id === myFinovaId) return;
+
+        if (data.is_typing) {
+          setTypingUsers(prev => {
+            const next = new Map(prev);
+
+            // Clear existing timeout
+            if (typingTimeouts.current[data.sender_finova_id]) {
+              clearTimeout(typingTimeouts.current[data.sender_finova_id]);
+            }
+
+            // Set auto-clear timeout
+            const timeout = setTimeout(() => {
+              setTypingUsers(curr => {
+                const nextCurr = new Map(curr);
+                nextCurr.delete(data.sender_finova_id);
+                return nextCurr;
+              });
+            }, 3000);
+
+            typingTimeouts.current[data.sender_finova_id] = timeout;
+            next.set(data.sender_finova_id, { username: data.sender_username, timeout });
+            return next;
+          });
+        } else {
+          setTypingUsers(prev => {
+            const next = new Map(prev);
+            if (typingTimeouts.current[data.sender_finova_id]) {
+              clearTimeout(typingTimeouts.current[data.sender_finova_id]);
+              delete typingTimeouts.current[data.sender_finova_id];
+            }
+            next.delete(data.sender_finova_id);
+            return next;
+          });
+        }
       }
     };
 
@@ -146,7 +205,7 @@ function ChatComponent() {
         console.error("WebSocket Error (Full):", JSON.stringify(error, null, 2), error);
       }
     };
-    
+
     ws.onclose = (event) => {
       if (isMounted) {
         console.warn(`WebSocket Closed: Code=${event.code}, Reason=${event.reason}, Clean=${event.wasClean}`);
@@ -178,8 +237,8 @@ function ChatComponent() {
     let discussionId: string | undefined;
     let pollId: string | undefined;
 
-    // Command Parsing: /stock SYMBOL [discuss | poll buy/sell]
-    const stockMatch = text.match(/^\/stock\s+["']?([A-Za-z0-9._-]+)["']?\s*(discuss|poll\s+(?:buy|sell))?$/i);
+    // Command Parsing: /stock SYMBOL [discuss | poll buy/sell/default]
+    const stockMatch = text.match(/^\/stock\s+["']?([A-Za-z0-9._-]+)["']?\s*(discuss|poll(?:\s+(?:buy|sell))?)?$/i);
     if (stockMatch) {
       messageType = "stock";
       stockSymbol = stockMatch[1].toUpperCase();
@@ -240,7 +299,7 @@ function ChatComponent() {
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ content, message_type: messageType, stock_symbol: stockSymbol }));
-      
+
       // Optimistic UI update
       const now = new Date();
       const msg: ChatMessage = {
@@ -264,6 +323,12 @@ function ChatComponent() {
       console.error("WebSocket is not connected");
     }
   }, [finovaId]);
+
+  const handleTyping = useCallback((isTyping: boolean) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'typing', is_typing: isTyping }));
+    }
+  }, []);
 
   const handleLongPress = useCallback(
     (messageId: string, position: { x: number; y: number }, text: string) => {
@@ -307,7 +372,7 @@ function ChatComponent() {
         const userTransactions = walletData.transactions?.filter(
           (t: any) => t.transaction_type === 'deposit'
         ) || [];
-        
+
         if (userTransactions.length === 0) {
           // User hasn't contributed — prompt them
           setShowCapitalModal(true);
@@ -342,6 +407,11 @@ function ChatComponent() {
         avatarTextColor="#2e7d32"
         pooledCapital={groupDetails.capital > 0 ? `₹${groupDetails.capital.toLocaleString()}` : "₹0"}
         isActive={true}
+        typingStatus={
+          typingUsers.size > 0
+            ? `${Array.from(typingUsers.values()).map(u => u.username).join(", ")} ${typingUsers.size === 1 ? 'is' : 'are'} typing...`
+            : undefined
+        }
         onCapitalClick={() => setShowCapitalModal(true)}
         onHeaderClick={() => {
           const params = new URLSearchParams();
@@ -349,6 +419,7 @@ function ChatComponent() {
           params.set('finovaId', finovaId);
           router.push(`/groups/chat/club-details?${params.toString()}`);
         }}
+        onInviteClick={() => setShowInviteModal(true)}
       />
 
       {/* Date Separator */}
@@ -388,7 +459,7 @@ function ChatComponent() {
       </div>
 
       {/* Input */}
-      <ChatInput onSend={handleSend} />
+      <ChatInput onSend={handleSend} onTyping={handleTyping} />
 
       {/* Context Menu */}
       <MessageContextMenu
@@ -396,7 +467,7 @@ function ChatComponent() {
         position={contextMenu.position}
         messageText={contextMenu.messageText}
         onDelete={handleDelete}
-        onCopy={() => {}}
+        onCopy={() => { }}
         onClose={closeContextMenu}
       />
 
@@ -409,8 +480,15 @@ function ChatComponent() {
           // Simply refetch group details to update pool capital visually
           apiFetch(`/groups/${finovaId}/`)
             .then(res => res.json())
-            .then(data => setGroupDetails(prev => ({...prev, capital: data.wallet ? parseFloat(data.wallet.current_balance) : 0})));
+            .then(data => setGroupDetails(prev => ({ ...prev, capital: data.wallet ? parseFloat(data.wallet.current_balance) : 0 })));
         }}
+      />
+
+      <InviteMemberModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        finovaId={finovaId}
+        onSuccess={(msg) => alert(msg)}
       />
     </div>
   );

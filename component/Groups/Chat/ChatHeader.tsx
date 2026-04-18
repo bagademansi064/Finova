@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-import { ArrowLeft, Search, MoreVertical } from "lucide-react";
+import { ArrowLeft, Search, MoreVertical, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface ChatHeaderProps {
@@ -11,8 +11,10 @@ interface ChatHeaderProps {
   avatarTextColor?: string;
   pooledCapital: string;
   isActive?: boolean;
+  typingStatus?: string;
   onCapitalClick?: () => void;
   onHeaderClick?: () => void;
+  onInviteClick?: () => void;
 }
 
 export default function ChatHeader({
@@ -23,8 +25,10 @@ export default function ChatHeader({
   avatarTextColor = "#00695C",
   pooledCapital,
   isActive = true,
+  typingStatus,
   onCapitalClick,
   onHeaderClick,
+  onInviteClick,
 }: ChatHeaderProps) {
   const router = useRouter();
 
@@ -70,7 +74,14 @@ export default function ChatHeader({
             <span className="text-[11px] font-medium text-[#6b7c75]">
               Pooled Capital: <span className="font-bold text-[#0E1B19]">{pooledCapital}</span>
             </span>
-            {isActive && (
+            {typingStatus ? (
+              <>
+                <span className="text-[11px] text-[#6b7c75]">•</span>
+                <span className="text-[11px] font-bold text-[#0D624B] animate-pulse">
+                  {typingStatus}
+                </span>
+              </>
+            ) : isActive && (
               <>
                 <span className="text-[11px] text-[#6b7c75]">•</span>
                 <span className="text-[11px] font-medium text-[#00897B] uppercase tracking-wide">
@@ -82,8 +93,14 @@ export default function ChatHeader({
         </div>
       </button>
 
-      {/* Capital click (separate from header navigation) */}
       {/* Actions */}
+      <button
+        onClick={onInviteClick}
+        className="flex h-9 w-9 items-center justify-center rounded-full transition-colors active:bg-[#f0f2f1] tap-highlight"
+        aria-label="Invite Member"
+      >
+        <UserPlus size={20} strokeWidth={2} className="text-[#0D624B]" />
+      </button>
       <button
         className="flex h-9 w-9 items-center justify-center rounded-full transition-colors active:bg-[#f0f2f1] tap-highlight"
         aria-label="Search"

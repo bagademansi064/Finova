@@ -11,6 +11,7 @@ import ClubCard from "@/component/Groups/ClubCard";
 import ClubMessage from "@/component/Groups/ClubMessage";
 import EmptyState from "@/component/Groups/EmptyState";
 import CreateClubFAB from "@/component/Groups/CreateClubFAB";
+import InvitationsList from "@/component/Groups/InvitationsList";
 
 // Keep mock messages for UI spacing until websocket is fully bound universally.
 const messages = [
@@ -99,6 +100,9 @@ export default function GroupsPage() {
             <ActiveProposals />
           </CollapsibleSection>
         )}
+
+        {/* Pending Invitations */}
+        <InvitationsList />
 
         {/* Your Clubs Section */}
         <div className="mt-5 px-5">

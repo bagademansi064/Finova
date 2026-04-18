@@ -21,6 +21,18 @@ export default function NewGroupPage() {
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [invitedIds, setInvitedIds] = useState<string[]>([]);
+  const [inviteId, setInviteId] = useState("");
+
+  const handleAddInvite = () => {
+    if (!inviteId.trim()) return;
+    if (invitedIds.includes(inviteId.trim())) {
+      setInviteId("");
+      return;
+    }
+    setInvitedIds(prev => [...prev, inviteId.trim()]);
+    setInviteId("");
+  };
 
   // Member invite state
   const [searchId, setSearchId] = useState("");
@@ -96,7 +108,10 @@ export default function NewGroupPage() {
       // Step 1: Create the group
       const response = await apiFetch(`/groups/`, {
         method: "POST",
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          invited_finova_ids: invitedMembers.map(m => m.finova_id)
+        }),
       });
 
       if (response.ok) {
@@ -115,10 +130,9 @@ export default function NewGroupPage() {
 
         const memberCount = invitedMembers.length;
         alert(
-          `Club created successfully!${
-            memberCount > 0
-              ? ` ${memberCount} invitation${memberCount > 1 ? "s" : ""} sent.`
-              : ""
+          `Club created successfully!${memberCount > 0
+            ? ` ${memberCount} invitation${memberCount > 1 ? "s" : ""} sent.`
+            : ""
           }`
         );
         router.push("/groups");
@@ -344,15 +358,16 @@ export default function NewGroupPage() {
             )}
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-8 w-full rounded-2xl bg-[#0D624B] py-4 text-center text-[15px] font-semibold text-white shadow-md transition-colors hover:bg-[#094d3a] focus:outline-none focus:ring-4 focus:ring-[#0D624B]/30 disabled:opacity-70"
-          >
-            {loading ? "Creating..." : invitedMembers.length > 0 ? `Create Club & Send ${invitedMembers.length} Invite${invitedMembers.length > 1 ? "s" : ""}` : "Create Club"}
-          </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-8 w-full rounded-2xl bg-[#0D624B] py-4 text-center text-[15px] font-semibold text-white shadow-md transition-colors hover:bg-[#094d3a] focus:outline-none focus:ring-4 focus:ring-[#0D624B]/30 disabled:opacity-70"
+            >
+              {loading ? "Creating..." : invitedMembers.length > 0 ? `Create Club & Send ${invitedMembers.length} Invite${invitedMembers.length > 1 ? "s" : ""}` : "Create Club"}
+            </button>
         </form>
       </div>
+
     </div>
   );
 }
