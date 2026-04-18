@@ -94,6 +94,7 @@ export default function StockWatchlist() {
             {stocksToDisplay.map((stock, idx) => (
               <StockItem
                 key={`${stock.symbol || stock.stock_symbol}-${idx}`}
+                symbol={stock.symbol || stock.stock_symbol}
                 name={(stock.symbol || stock.stock_symbol).replace('.NS', '')}
                 exchange="NSE"
                 price={stock.current_price}

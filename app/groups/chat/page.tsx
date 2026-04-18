@@ -147,6 +147,10 @@ function ChatComponent() {
             avatarInitials: (data.sender_username || data.sender_finova_id || "U").substring(0, 2).toUpperCase(),
             messageType: data.message_type,
             stockSymbol: data.stock_symbol,
+            cardAction: data.cardAction,
+            pollDirection: data.pollDirection,
+            pollId: data.pollId,
+            discussionId: data.discussionId,
             createdAt: data.created_at
           };
           return [...prev, msg];

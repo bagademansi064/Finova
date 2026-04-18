@@ -1,7 +1,7 @@
-"use client";
-import React from "react";
+import { useStockDetail } from "@/lib/context/StockDetailContext";
 
 interface StockItemProps {
+  symbol: string;
   name: string;
   exchange: string;
   badge?: string;
@@ -14,6 +14,7 @@ interface StockItemProps {
 }
 
 export default function StockItem({
+  symbol,
   name,
   exchange,
   badge,
@@ -24,8 +25,12 @@ export default function StockItem({
   clubName,
   isPL,
 }: StockItemProps) {
+  const { openStockDetail } = useStockDetail();
   return (
-    <div className="flex items-center justify-between py-3.5 animate-fade-in-up hover:bg-[#f7f9f8] transition-colors rounded-xl px-2 -mx-2">
+    <div 
+      onClick={() => openStockDetail(symbol)}
+      className="flex items-center justify-between py-3.5 animate-fade-in-up hover:bg-[#f7f9f8] transition-colors rounded-xl px-2 -mx-2 cursor-pointer active:scale-[0.98]"
+    >
       {/* Left side */}
       <div className="flex flex-col gap-0.5">
         <span className="text-[15px] font-bold text-[#0E1B19] tracking-tight">{name}</span>
